@@ -1,131 +1,109 @@
 #!/usr/bin/env python3
 
-from pathlib import Path
 import cv2
 import depthai as dai
-import numpy as np
-import argparse
 
-# Path to model blob
-nnPathDefault = str((Path(__file__).parent / Path('../models/mobilenet-ssd_openvino_2021.4_6shave.blob')).resolve().absolute())
 
-parser = argparse.ArgumentParser()
-parser.add_argument('nnPath', nargs='?', help="Path to mobilenet detection network blob", default=nnPathDefault)
-parser.add_argument('-s', '--sync', action="store_true", help="Sync RGB output with NN output", default=False)
-args = parser.parse_args()
+# ---------------------------------------------------------
+# SETTINGS
+# ---------------------------------------------------------
+CAMERA_FPS = 15
 
-if not Path(nnPathDefault).exists():
-    import sys
-    raise FileNotFoundError(f'Required file/s not found, please run "{sys.executable} install_requirements.py"')
+# Detection model used by the current DepthAI v3 example
+MODEL = "yolov6-nano"
 
-# -----------------------------
-# Create pipeline
-# -----------------------------
-pipeline = dai.Pipeline()
+# ---------------------------------------------------------
+# CREATE PIPELINE
+# ---------------------------------------------------------
+with dai.Pipeline() as pipeline:
 
-camRgb = pipeline.create(dai.node.ColorCamera)
-nn = pipeline.create(dai.node.MobileNetDetectionNetwork)
-xoutRgb = pipeline.create(dai.node.XLinkOut)
-nnOut = pipeline.create(dai.node.XLinkOut)
+    # -----------------------------------------------------
+    # CAMERA
+    # -----------------------------------------------------
+    # CAM_A is normally the main/color camera on the OAK-D Pro
+    camera = pipeline.create(dai.node.Camera).build(
+        dai.CameraBoardSocket.CAM_A,
+        sensorFps=CAMERA_FPS
+    )
 
-xoutRgb.setStreamName("rgb")
-nnOut.setStreamName("nn")
+    # -----------------------------------------------------
+    # DETECTION NETWORK
+    # -----------------------------------------------------
+    detector = pipeline.create(dai.node.DetectionNetwork).build(
+        camera,
+        dai.NNModelDescription(MODEL)
+    )
 
-# -----------------------------
-# Camera Configuration (FIXED)
-# -----------------------------
-camRgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_720_P)
-camRgb.setPreviewSize(300, 300)  # Required by MobileNet
-camRgb.setInterleaved(False)
-camRgb.setFps(30)
+    # -----------------------------------------------------
+    # OUTPUT QUEUES
+    # -----------------------------------------------------
+    # Frame that actually went through the detector.
+    # Using passthrough keeps detections synchronized
+    # with the displayed image.
+    frameQueue = detector.passthrough.createOutputQueue()
 
-# -----------------------------
-# Neural Network Configuration
-# -----------------------------
-nn.setConfidenceThreshold(0.5)
-nn.setBlobPath(args.nnPath)
-nn.setNumInferenceThreads(2)
-nn.input.setBlocking(False)
+    # Bounding-box detections
+    detectionQueue = detector.out.createOutputQueue()
 
-# -----------------------------
-# Linking
-# -----------------------------
-if args.sync:
-    nn.passthrough.link(xoutRgb.input)
-else:
-    camRgb.preview.link(xoutRgb.input)
+    # -----------------------------------------------------
+    # START PIPELINE
+    # -----------------------------------------------------
+    pipeline.start()
 
-camRgb.preview.link(nn.input)
-nn.out.link(nnOut.input)
+    print("OAK-D Pro bounding-box camera started.")
+    print("Press Q to quit.")
 
-# -----------------------------
-# Run Device
-# -----------------------------
-with dai.Device(pipeline) as device:
+    # -----------------------------------------------------
+    # MAIN LOOP
+    # -----------------------------------------------------
+    while pipeline.isRunning():
 
-    qRgb = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
-    qDet = device.getOutputQueue(name="nn", maxSize=4, blocking=False)
+        # Get the image and its detections
+        frameMessage = frameQueue.get()
+        detectionMessage = detectionQueue.get()
 
-    frame = None
-    detections = []
+        # Convert DepthAI image into OpenCV image
+        frame = frameMessage.getCvFrame()
 
-    # Normalize bounding box
-    def frameNorm(frame, bbox):
-        normVals = np.full(len(bbox), frame.shape[0])
-        normVals[::2] = frame.shape[1]
-        return (np.clip(np.array(bbox), 0, 1) * normVals).astype(int)
+        height, width = frame.shape[:2]
 
-    # Display only square outline
-    def displayFrame(name, frame):
-        color = (0, 255, 0)  # Green square
+        # -------------------------------------------------
+        # DRAW ONLY BOUNDING BOXES
+        # -------------------------------------------------
+        for detection in detectionMessage.detections:
 
-        for detection in detections:
-            if detection.confidence > 0.5:
+            # DepthAI detections use normalized coordinates:
+            # 0.0 -> 1.0
+            # Convert those coordinates to image pixels.
+            x1 = int(detection.xmin * width)
+            y1 = int(detection.ymin * height)
 
-                bbox = frameNorm(frame, (
-                    detection.xmin,
-                    detection.ymin,
-                    detection.xmax,
-                    detection.ymax
-                ))
+            x2 = int(detection.xmax * width)
+            y2 = int(detection.ymax * height)
 
-                # Create perfect square
-                box_width = bbox[2] - bbox[0]
-                box_height = bbox[3] - bbox[1]
-                box_size = min(box_width, box_height)
+            # Keep coordinates inside the image
+            x1 = max(0, min(x1, width - 1))
+            y1 = max(0, min(y1, height - 1))
 
-                cv2.rectangle(
-                    frame,
-                    (bbox[0], bbox[1]),
-                    (bbox[0] + box_size, bbox[1] + box_size),
-                    color,
-                    2
-                )
+            x2 = max(0, min(x2, width - 1))
+            y2 = max(0, min(y2, height - 1))
 
-        cv2.imshow(name, frame)
+            cv2.rectangle(
+                frame,
+                (x1, y1),
+                (x2, y2),
+                (0, 255, 0),
+                2
+            )
 
-    # -----------------------------
-    # Main Loop
-    # -----------------------------
-    while True:
+        # -------------------------------------------------
+        # DISPLAY
+        # -------------------------------------------------
+        cv2.imshow("OAK-D Pro - Bounding Boxes", frame)
 
-        if args.sync:
-            inRgb = qRgb.get()
-            inDet = qDet.get()
-        else:
-            inRgb = qRgb.tryGet()
-            inDet = qDet.tryGet()
+        key = cv2.waitKey(1) & 0xFF
 
-        if inRgb is not None:
-            frame = inRgb.getCvFrame()
-
-        if inDet is not None:
-            detections = inDet.detections
-
-        if frame is not None:
-            displayFrame("rgb", frame)
-
-        if cv2.waitKey(1) == ord('q'):
+        if key == ord("q"):
             break
 
 cv2.destroyAllWindows()
