@@ -1,0 +1,44 @@
+# Startup parameters. Enable USB adapters only after identifying real voltage sources.
+vlp16_voltage_monitor:
+  ros__parameters:
+    device_name: velodyne
+    sensor_ip: '192.168.1.201'
+    poll_period_sec: 1.0
+    timeout_sec: 0.8
+    min_voltage: 8.0
+    max_voltage: 19.0
+    max_step_voltage: 0.0  # Disabled; set a threshold for consecutive samples.
+    stale_timeout_sec: 3.0
+    warning_repeat_sec: 10.0
+    log_readings: true
+
+telemetry_voltage_monitor:
+  ros__parameters:
+    device_name: telemetry
+    input_topic: ''  # Set the actual radio supply measurement topic.
+    input_type: std_msgs/msg/Float32
+    voltage_scale: 1.0
+    diagnostic_name: ''
+    diagnostic_key: ''
+    # Select limits for the actual measured rail; 0 disables a threshold.
+    min_voltage: 0.0
+    max_voltage: 0.0
+    max_step_voltage: 0.0
+    stale_timeout_sec: 3.0
+    warning_repeat_sec: 10.0
+    log_readings: true
+
+oakd_voltage_monitor:
+  ros__parameters:
+    device_name: oakd
+    input_topic: ''  # Set the actual OAK-D Pro supply measurement topic.
+    input_type: std_msgs/msg/Float32
+    voltage_scale: 1.0
+    diagnostic_name: ''
+    diagnostic_key: ''
+    min_voltage: 0.0
+    max_voltage: 0.0
+    max_step_voltage: 0.0
+    stale_timeout_sec: 3.0
+    warning_repeat_sec: 10.0
+    log_readings: true
