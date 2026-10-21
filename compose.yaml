@@ -1,0 +1,46 @@
+services:
+  airborne-bridge:
+    build:
+      context: .
+      dockerfile: airborne/Dockerfile
+    container_name: airborne-bridge
+    restart: unless-stopped
+    init: true
+
+    devices:
+      - /dev/serial/by-id/usb-ArduPilot_Pixhawk6x_43004E000251323436333634-if00:/dev/pixhawk
+      - /dev/serial/by-id/usb-FTDI_FT231X_USB_UART_D30IKKLP-if00-port0:/dev/radio
+
+    group_add:
+      - "${SERIAL_GID:-20}"
+
+    security_opt:
+      - no-new-privileges:true
+
+    command:
+      - --pixhawk
+      - /dev/pixhawk
+      - --pixhawk-baud
+      - "115200"
+      - --radio
+      - /dev/radio
+      - --radio-baud
+      - "57600"
+      - --stream-rate
+      - "4"
+
+  velodyne:
+    build:
+      context: .
+      dockerfile: LiDARS/Velodyne/Dockerfile
+    container_name: velodyne
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    stop_grace_period: 20s
+
+    environment:
+      ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
+
+    security_opt:
+      - no-new-privileges:true
