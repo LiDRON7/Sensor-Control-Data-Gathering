@@ -9,7 +9,7 @@ services:
 
     devices:
       - /dev/serial/by-id/usb-ArduPilot_Pixhawk6X_43004E000251323436333634-if00:/dev/pixhawk
-      - /dev/serial/by-id/usb-FTDI_FT231X_USB_UART_D30IKKLP-if00-port0:/dev/radio
+      - /dev/serial/by-id/usb-FTDI_FT231X_USB_UART_D30IL4V3-if00-port0:/dev/radio
 
     group_add:
       - "${SERIAL_GID:-20}"
