@@ -3,8 +3,7 @@
 !requirements.txt
 
 !airborne/
-!airborne/Dockerfile
-!airborne/airborne_bridge.py
+!airborne/**
 
 !LiDARS/
 !LiDARS/Velodyne/

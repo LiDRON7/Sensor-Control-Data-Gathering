@@ -6,6 +6,9 @@ services:
     container_name: airborne-bridge
     restart: unless-stopped
     init: true
+    network_mode: host
+    ipc: host
+    stop_grace_period: 20s
 
     devices:
       - /dev/serial/by-id/usb-ArduPilot_Pixhawk6X_43004E000251323436333634-if00:/dev/pixhawk
@@ -14,20 +17,28 @@ services:
     group_add:
       - "${SERIAL_GID:-20}"
 
+    environment:
+      ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
+
     security_opt:
       - no-new-privileges:true
 
     command:
-      - --pixhawk
-      - /dev/pixhawk
-      - --pixhawk-baud
-      - "115200"
-      - --radio
-      - /dev/radio
-      - --radio-baud
-      - "57600"
-      - --stream-rate
-      - "4"
+      - ros2
+      - run
+      - airborne
+      - airborne_bridge
+      - --ros-args
+      - -p
+      - pixhawk:=/dev/pixhawk
+      - -p
+      - pixhawk_baud:=115200
+      - -p
+      - radio:=/dev/radio
+      - -p
+      - radio_baud:=57600
+      - -p
+      - stream_rate:=4
 
   velodyne:
     build:
@@ -37,6 +48,7 @@ services:
     restart: unless-stopped
     init: true
     network_mode: host
+    ipc: host
     stop_grace_period: 20s
 
     environment:
