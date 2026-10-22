@@ -1,0 +1,4 @@
+/**:
+  ros__parameters:
+    frame_id: oak_rgb_camera_optical_frame
+    show_preview: true
