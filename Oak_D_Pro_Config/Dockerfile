@@ -23,6 +23,12 @@ RUN apt-get update \
         python3-pip \
         python3-rosdep \
         python3-venv \
+        gstreamer1.0-tools \
+        gstreamer1.0-plugins-base \
+        gstreamer1.0-plugins-good \
+        gstreamer1.0-plugins-bad \
+        gstreamer1.0-plugins-ugly \
+        gstreamer1.0-libav \
     && rm -rf /var/lib/apt/lists/*
 
 COPY Oak_D_Pro_Config/ros2/oak_d_ros2/requirements.txt \
