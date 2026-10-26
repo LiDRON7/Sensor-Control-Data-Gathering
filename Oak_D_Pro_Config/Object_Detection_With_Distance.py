@@ -121,6 +121,9 @@ with dai.Pipeline() as pipeline:
         frame = frameMessage.getCvFrame()
         height, width = frame.shape[:2]
 
+        if _ros_bridge is not None and hasattr(_ros_bridge, 'stream_frame'):
+            _ros_bridge.stream_frame(frame)
+
         # -------------------------------------------------
         # GET DETECTIONS
         # -------------------------------------------------
