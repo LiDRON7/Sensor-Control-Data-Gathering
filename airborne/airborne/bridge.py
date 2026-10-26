@@ -11,7 +11,7 @@ from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from std_msgs.msg import String, UInt8MultiArray
-
+from sensor_msgs.msg import NavSatFix, NavSatStatus, Imu
 
 def json_value(value):
     """Keep MAVLink byte arrays and unknown (NaN) values valid in JSON."""
@@ -54,6 +54,18 @@ class AirborneBridge(Node):
 
         self.telemetry_publisher = self.create_publisher(String, "telemetry/mavlink", 10)
         self.raw_publisher = self.create_publisher(UInt8MultiArray, "telemetry/mavlink_raw", 10)
+        #GPS data: Latitude, longitude, altitude and GPS status
+        self.gps_publisher = self.create_publisher(
+            NavSatFix, "pixhawk/gps", 10
+        )
+        # GPS data: Orientation and angular velocity
+        self.imu_publisher = self.create_publisher(
+            Imu, "pixhawk/imu", 10
+        )
+        # GPS data: fix type and visible satellite count
+        self.gps_status_publisher = self.create_publisher(
+            String,"pixhawk/gps_status", 10
+        )
         self.pixhawk = None
         self.radio = None
         self.ready = False
@@ -126,19 +138,51 @@ class AirborneBridge(Node):
                     gps_lat = message.lat / 1e7
                     gps_lon = message.lon / 1e7
                     gps_alt = message.alt / 1000.0
-                    print("---- GLOBAL POSITION ----")
-                    print(f"Latitude: {gps_lat}")
-                    print(f"Longitude: {gps_lon}")
-                    print(f"Altitude: {gps_alt} m \n")
+                    gps_msg = NavSatFix()
+                    gps_msg.header.stamp = self.get_clock().now().to_msg()
+                    gps_msg.header.frame_id = "gps_link"
+                    gps_msg.latitude = gps_lat
+                    gps_msg.longitude = gps_lon
+                    gps_msg.altitude = gps_alt
+                    gps_msg.status.status = NavSatStatus.STATUS_FIX
+                    gps_msg.status.service = NavSatStatus.SERVICE_GPS
+                    self.gps_publisher.publish(gps_msg)
                 if message.get_type() == 'ATTITUDE':
-                    print("\n---- ATTITUDE ----")
-                    print(f"Attitude -> Roll: {message.roll:.2f}, Pitch: {message.pitch:.2f}, Yaw: {message.yaw:.2f}")
-                    print(f"Angular rates -> p: {message.rollspeed:.2f}, q: {message.pitchspeed:.2f}, r: {message.yawspeed:.2f}\n")
+                    roll = message.roll
+                    pitch = message.pitch
+                    yaw = message.yaw
+                    imu_msg = Imu()
+                    imu_msg.header.stamp = self.get_clock().now().to_msg()
+                    imu_msg.header.frame_id = "imu_link"
+                    # Convert Euler angles (roll, pitch, yaw) to a quaternion.
+                    roll_cos = math.cos(roll / 2.0)
+                    roll_sin = math.sin(roll / 2.0)
+                    pitch_cos = math.cos(pitch / 2.0)
+                    pitch_sin = math.sin(pitch / 2.0)
+                    yaw_cos = math.cos(yaw / 2.0)
+                    yaw_sin = math.sin(yaw / 2.0)
+                    imu_msg.orientation.x = (roll_sin * pitch_cos * yaw_cos) - (roll_cos * pitch_sin * yaw_sin)
+                    imu_msg.orientation.y = (roll_cos * pitch_sin * yaw_cos) + (roll_sin * pitch_cos * yaw_sin)
+                    imu_msg.orientation.z = (roll_cos * pitch_cos * yaw_sin) - (roll_sin * pitch_sin * yaw_cos)
+                    imu_msg.orientation.w = (roll_cos * pitch_cos * yaw_cos) + (roll_sin * pitch_sin * yaw_sin)
+                    # MAVLink ATTITUDE angular rates are in radians per second.
+                    imu_msg.angular_velocity.x = message.rollspeed
+                    imu_msg.angular_velocity.y = message.pitchspeed
+                    imu_msg.angular_velocity.z = message.yawspeed
+                    # ATTITUDE does not provide linear acceleration.
+                    imu_msg.orientation_covariance[0] = -1.0
+                    imu_msg.angular_velocity_covariance[0] = -1.0
+                    imu_msg.linear_acceleration_covariance[0] = -1.0
+                    self.imu_publisher.publish(imu_msg)
                 if message.get_type() =='GPS_RAW_INT':
-                     fix_type = message.fix_type
-                     satellites = message.satellites_visible  
-                     print(f"Fix Type: {fix_type}")
-                     print(f"Satellites: {satellites}")
+                    fix_type = message.fix_type
+                    satellites = message.satellites_visible
+                    status_msg = String()
+                    status_msg.data = json.dumps({
+                        "fix_type": fix_type,
+                        "satellites_visible": satellites
+                    })
+                    self.gps_status_publisher.publish(status_msg)
                 if self.ready:
                     self._forward(message)
 
@@ -217,3 +261,6 @@ def main(args=None):
             node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
