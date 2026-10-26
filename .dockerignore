@@ -13,9 +13,18 @@
 !LiDARS/Velodyne/Velodyne_ROS_Package/
 !LiDARS/Velodyne/Velodyne_ROS_Package/**
 
+!Oak_D_Pro_Config/
+!Oak_D_Pro_Config/Dockerfile
+!Oak_D_Pro_Config/docker-entrypoint.sh
+!Oak_D_Pro_Config/Object_Detection_With_Distance.py
+!Oak_D_Pro_Config/ros2/
+!Oak_D_Pro_Config/ros2/**
+
 **/__pycache__/
 **/*.pyc
 **/*.pyo
+**/.pytest_cache/
+**/*.egg-info/
 **/build/
 **/install/
 **/log/

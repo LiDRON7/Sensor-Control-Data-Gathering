@@ -2,3 +2,10 @@
   ros__parameters:
     frame_id: oak_rgb_camera_optical_frame
     show_preview: true
+    enable_stream: false
+    stream_host: "10.42.0.113"
+    stream_port: 5600
+    stream_width: 640
+    stream_height: 480
+    stream_bitrate: 1000
+    stream_fps: 15
