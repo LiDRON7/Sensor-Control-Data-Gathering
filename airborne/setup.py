@@ -1,24 +1,22 @@
 from glob import glob
-
 from setuptools import find_packages, setup
 
-
 setup(
-    name="airborne",
+    name="airborne_telemetry",
     version="0.1.0",
     packages=find_packages(exclude=["test"]),
     data_files=[
-        ("share/ament_index/resource_index/packages", ["resource/airborne"]),
-        ("share/airborne", ["package.xml"]),
-        ("share/airborne/launch", glob("launch/*.launch.py")),
-        ("share/airborne/config", glob("config/*.yaml")),
+        ("share/ament_index/resource_index/packages", ["resource/airborne_telemetry"]),
+        ("share/airborne_telemetry", ["package.xml"]),
+        ("share/airborne_telemetry/launch", glob("launch/*.launch.py")),
+        ("share/airborne_telemetry/config", glob("config/*.yaml")),
     ],
     install_requires=["setuptools", "pymavlink>=2.4.41", "pyserial>=3.5"],
-    tests_require=["pytest"],
     zip_safe=True,
-    maintainer="LiDRON",
+    maintainer="Telemetry Communication maintainers",
     maintainer_email="maintainers@example.com",
-    description="ROS 2 telemetry interface and MAVLink radio bridge",
+    description="Pixhawk MAVLink radio bridge and ROS 2 GPS telemetry",
     license="TODO",
-    entry_points={"console_scripts": ["airborne_bridge = airborne.bridge:main"]},
+    tests_require=["pytest"],
+    entry_points={"console_scripts": ["airborne_bridge = airborne_telemetry.node:main"]},
 )

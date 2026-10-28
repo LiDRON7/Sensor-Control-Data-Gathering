@@ -4,8 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     ROS_DISTRO=jazzy \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    VIRTUAL_ENV=/opt/airborne-venv \
-    HOME=/home/airborne
+    VIRTUAL_ENV=/opt/airborne-venv
 
 ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 
@@ -20,18 +19,13 @@ RUN apt-get update \
         python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt /tmp/requirements.txt
+COPY requirements.txt /tmp/airborne-requirements.txt
 
 RUN python3 -m venv --system-site-packages "${VIRTUAL_ENV}" \
     && python -m pip install --no-cache-dir --upgrade pip \
     && python -m pip install \
         --no-cache-dir \
-        --requirement /tmp/requirements.txt \
-    && python -m pip install \
-        --no-cache-dir \
-        --force-reinstall \
-        --no-deps \
-        colcon-core
+        --requirement /tmp/airborne-requirements.txt
 
 WORKDIR /opt/airborne_ws
 
@@ -44,12 +38,12 @@ RUN source "/opt/ros/${ROS_DISTRO}/setup.bash" \
         --from-paths src \
         --ignore-src \
         --rosdistro "${ROS_DISTRO}" \
-        --skip-keys "python3-pymavlink-pip python3-serial" \
+        --skip-keys "python3-pymavlink python3-serial" \
         -y \
     && rm -rf /var/lib/apt/lists/* \
-    && python -m colcon build \
+    && python /usr/bin/colcon build \
         --merge-install \
-        --packages-select airborne
+        --packages-select airborne_telemetry
 
 RUN addgroup --system airborne \
     && adduser \
@@ -60,11 +54,15 @@ RUN addgroup --system airborne \
     && mkdir -p /home/airborne/.ros \
     && chown -R airborne:airborne /home/airborne
 
-COPY airborne/docker-entrypoint.sh /usr/local/bin/airborne-entrypoint.sh
+ENV HOME=/home/airborne
+
+COPY airborne/docker-entrypoint.sh \
+    /usr/local/bin/airborne-entrypoint.sh
 
 RUN chmod +x /usr/local/bin/airborne-entrypoint.sh
 
 USER airborne
 
 ENTRYPOINT ["/usr/local/bin/airborne-entrypoint.sh"]
-CMD ["ros2", "run", "airborne", "airborne_bridge"]
+
+CMD ["ros2", "run", "airborne_telemetry", "airborne_bridge"]
