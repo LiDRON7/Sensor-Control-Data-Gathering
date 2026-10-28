@@ -153,7 +153,9 @@ class OakDistanceNode(Node):
             header=header, height=height, width=width, encoding='16UC1',
             is_bigendian=0, step=width * 2, data=array.array('B', depth.tobytes()),
         ))
-        self.depth_points_pub.publish(create_cloud_xyz32(header, depth_points(depth, self._intrinsics)))
+        # The cloud is FLU (see depth.py), so it gets its own frame instead of the optical one.
+        points_header = Header(stamp=header.stamp, frame_id='oak_d_link')
+        self.depth_points_pub.publish(create_cloud_xyz32(points_header, depth_points(depth, self._intrinsics)))
 
     def _start_gstreamer(self):
         command = [
