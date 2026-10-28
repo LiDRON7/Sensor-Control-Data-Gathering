@@ -20,6 +20,8 @@ services:
 
     environment:
       ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
+      # Containers run as different users, so Fast DDS shared memory between them fails; use UDP.
+      FASTDDS_BUILTIN_TRANSPORTS: UDPv4
 
     security_opt:
       - no-new-privileges:true
@@ -63,6 +65,8 @@ services:
 
     environment:
       ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
+      # Containers run as different users, so Fast DDS shared memory between them fails; use UDP.
+      FASTDDS_BUILTIN_TRANSPORTS: UDPv4
 
     command: ["serial", "--dev", "/dev/px4", "-b", "921600"]
 
@@ -79,6 +83,8 @@ services:
 
     environment:
       ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
+      # Containers run as different users, so Fast DDS shared memory between them fails; use UDP.
+      FASTDDS_BUILTIN_TRANSPORTS: UDPv4
 
     security_opt:
       - no-new-privileges:true
@@ -107,6 +113,8 @@ services:
 
     environment:
       ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
+      # Containers run as different users, so Fast DDS shared memory between them fails; use UDP.
+      FASTDDS_BUILTIN_TRANSPORTS: UDPv4
       DEPTHAI_DISABLE_CRASHDUMP_COLLECTION: "1"
 
     security_opt:
