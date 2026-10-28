@@ -11,7 +11,8 @@ services:
     stop_grace_period: 20s
 
     devices:
-      - /dev/serial/by-id/usb-ArduPilot_Pixhawk6X_43004E000251323436333634-if00:/dev/pixhawk
+      # The by-id name comes from the firmware; set PIXHAWK_DEVICE after flashing PX4.
+      - ${PIXHAWK_DEVICE:-/dev/serial/by-id/usb-ArduPilot_Pixhawk6X_43004E000251323436333634-if00}:/dev/pixhawk
       - /dev/serial/by-id/usb-FTDI_FT231X_USB_UART_D30IL4V3-if00-port0:/dev/radio
 
     group_add:
@@ -39,6 +40,23 @@ services:
       - radio_baud:=57600
       - -p
       - stream_rate:=4
+
+  # Connects PX4 (TELEM2) to ROS 2: /fmu/in/* and /fmu/out/* for the autonomy code.
+  px4-agent:
+    image: microros/micro-ros-agent:jazzy
+    container_name: px4-agent
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    ipc: host
+
+    devices:
+      - ${PX4_AGENT_DEVICE:-/dev/ttyAMA0}:/dev/px4
+
+    environment:
+      ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
+
+    command: ["serial", "--dev", "/dev/px4", "-b", "921600"]
 
   velodyne:
     build:
