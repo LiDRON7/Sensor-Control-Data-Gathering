@@ -25,7 +25,17 @@ You should see `/fmu/out/vehicle_status` and `/oakd/depth/points`, among others.
 | `oak-d` | OAK-D Pro over USB | `/oakd/depth/image`, `/oakd/depth/points`, `/oak/object_distances` |
 | `velodyne` | VLP-16 over Ethernet | `/velodyne_points` |
 
-![How data moves from the sensors to PX4](docs/architecture/DataFlow.excalidraw.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture/data-flow-dark.png">
+  <img alt="How data moves from the sensors to PX4" src="docs/architecture/data-flow-light.png">
+</picture>
+
+How everything is wired and powered:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture/connections-dark.png">
+  <img alt="Power, data and radio connections" src="docs/architecture/connections-light.png">
+</picture>
 
 ## Set up a new Pi (once)
 
