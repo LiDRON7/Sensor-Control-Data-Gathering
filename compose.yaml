@@ -11,9 +11,9 @@ services:
     stop_grace_period: 20s
 
     devices:
-      # The by-id name comes from the firmware; set PIXHAWK_DEVICE after flashing PX4.
-      - ${PIXHAWK_DEVICE:-/dev/serial/by-id/usb-ArduPilot_Pixhawk6X_43004E000251323436333634-if00}:/dev/pixhawk
-      - /dev/serial/by-id/usb-FTDI_FT231X_USB_UART_D30IL4V3-if00-port0:/dev/radio
+      # Each radio has its own serial number in the by-id name; set both in .env.
+      - ${PIXHAWK_DEVICE:-/dev/serial/by-id/usb-Auterion_PX4_FMU_v6X.x_0-if00}:/dev/pixhawk
+      - ${RADIO_DEVICE:-/dev/serial/by-id/usb-FTDI_FT231X_USB_UART_D30IKKLP-if00-port0}:/dev/radio
 
     group_add:
       - "${SERIAL_GID:-20}"
