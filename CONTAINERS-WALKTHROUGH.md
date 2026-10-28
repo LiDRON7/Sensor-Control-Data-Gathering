@@ -1,41 +1,18 @@
 # Sensor Control and Data Gathering Containers Walkthrough
 
-This repository contains Dockerized services for airborne MAVLink telemetry and
-Velodyne VLP-16 LiDAR processing on a Raspberry Pi.
+This repository contains the Raspberry Pi containers for MAVLink telemetry, the
+PX4 ROS 2 agent, the OAK-D Pro camera and the Velodyne VLP-16 LiDAR.
 
-Docker Compose manages both services. They can be built and started together or
+Docker Compose manages all services. They can be built and started together or
 operated independently.
 
 ## System Overview
 
 ```text
-Pixhawk
-   |
-   | MAVLink over USB serial
-   v
-airborne-bridge container
-   |                         |
-   | unchanged MAVLink       | ROS 2 telemetry topics
-   v                         v
-Telemetry transmitter     Onboard ROS algorithms
-   |
-   | Radio link
-   v
-Ground telemetry radio
-   |
-   v
-Windows ground bridge -> Mission Planner
-
-
-Velodyne VLP-16
-   |
-   | Ethernet UDP port 2368
-   v
-velodyne container
-   |
-   +-> /velodyne_packets
-   +-> /velodyne_points
-   +-> /scan
+Pixhawk (PX4) --USB, MAVLink--> airborne-bridge <--radio--> QGroundControl
+Pixhawk (PX4) --TELEM2, uXRCE-DDS--> px4-agent --> /fmu/out/*, /fmu/in/* (autonomy)
+OAK-D Pro --USB--> oak-d --> /oakd/depth/image, /oakd/depth/points, /oak/object_distances
+VLP-16 --Ethernet--> velodyne --> /velodyne_points, /scan
 ```
 
 ## Containers
@@ -54,6 +31,7 @@ The airborne telemetry container:
 - Reads MAVLink from the Pixhawk at `115200` baud.
 - Forwards the original MAVLink frames to the telemetry transmitter at `57600`
   baud.
+- Forwards ground station messages from the radio back to the Pixhawk.
 - Requests Pixhawk data streams at `4 Hz`.
 - Publishes decoded MAVLink messages to ROS 2.
 - Publishes the original MAVLink frame bytes to ROS 2.
@@ -111,13 +89,12 @@ The expected VLP-16 publication rate is approximately `9.9 Hz`.
 
 ## Ground Station
 
-The ground bridge and Mission Planner remain on the Windows ground-station
-laptop. They are not included in the Raspberry Pi containers.
-
-The data path remains:
+QGroundControl runs on the ground laptop with the other SiK radio. It is not a
+Raspberry Pi container. PX4 needs QGroundControl: Mission Planner cannot change
+PX4 flight modes reliably.
 
 ```text
-Pixhawk -> RPi -> airborne radio -> ground radio -> ground bridge -> Mission Planner
+Pixhawk <-> RPi airborne-bridge <-> airborne radio <-> ground radio <-> QGroundControl
 ```
 
 ## Requirements
