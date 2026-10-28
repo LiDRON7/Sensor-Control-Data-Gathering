@@ -136,6 +136,9 @@ with dai.Pipeline() as pipeline:
         depthFrame = depthMessage.getFrame()
         depthHeight, depthWidth = depthFrame.shape[:2]
 
+        if _ros_bridge is not None and hasattr(_ros_bridge, 'submit_depth'):
+            _ros_bridge.submit_depth(depthMessage, pipeline)
+
         # -------------------------------------------------
         # PROCESS EACH DETECTION
         # -------------------------------------------------
