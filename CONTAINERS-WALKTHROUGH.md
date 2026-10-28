@@ -24,7 +24,7 @@ How to set up, start, check and fix each container on the Raspberry Pi. Run ever
    ls -la /dev/serial/by-id/
    ```
 
-   Use the Pixhawk entry ending in `-if00` and the FTDI radio entry ending in `-port0`. The Pixhawk name changes when you flash new firmware. Names are case-sensitive.
+   Use the Pixhawk entry ending in `-if00` (on PX4 it starts with `usb-Auterion_PX4`) and the FTDI radio entry ending in `-port0`. Names are case-sensitive.
 
 3. Find the serial group ID with `getent group dialout`. It's usually `20`.
 
@@ -32,12 +32,11 @@ How to set up, start, check and fix each container on the Raspberry Pi. Run ever
 
    ```dotenv
    PIXHAWK_DEVICE=/dev/serial/by-id/<Pixhawk name ending in -if00>
+   RADIO_DEVICE=/dev/serial/by-id/<radio name ending in -port0>
    PX4_AGENT_DEVICE=/dev/ttyAMA0
    SERIAL_GID=20
    ROS_DOMAIN_ID=0
    ```
-
-   The radio path is set directly in `compose.yaml` (`/dev/radio` line). Change the left side only if your radio has a different name.
 
 5. Do the PX4, UART and OAK-D steps in the [README](README.md#set-up-a-new-pi-once).
 
