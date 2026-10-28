@@ -71,6 +71,7 @@ docker run --rm --entrypoint bash sensor-control-data-gathering-oak-d:latest -lc
 
 ## More
 
+- [docs/connect-to-pi.md](docs/connect-to-pi.md): how to SSH into the drone's Pi, at the university or in the field.
 - [docs/topics.md](docs/topics.md): every topic, who sends it and who uses it.
 - [CONTAINERS-WALKTHROUGH.md](CONTAINERS-WALKTHROUGH.md): every command for building, running and debugging each container.
 - `docs/architecture/`: the data flow and wiring diagrams. Open the `.excalidraw` files at [excalidraw.com](https://excalidraw.com) to edit them.
