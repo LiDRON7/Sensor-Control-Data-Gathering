@@ -26,7 +26,7 @@ services:
     command:
       - ros2
       - run
-      - airborne
+      - airborne_telemetry
       - airborne_bridge
       - --ros-args
       - -p
@@ -38,7 +38,15 @@ services:
       - -p
       - radio_baud:=57600
       - -p
+      - source_system:=245
+      - -p
+      - target_system:=1
+      - -p
+      - target_component:=1
+      - -p
       - stream_rate:=4
+      - -p
+      - frame_id:=gps_link
 
   velodyne:
     build:
