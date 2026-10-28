@@ -1,6 +1,8 @@
 /**:
   ros__parameters:
     frame_id: oak_rgb_camera_optical_frame
+    # /oakd/depth/image and /oakd/depth/points for Autonomous-Systems
+    publish_depth: true
     show_preview: true
     enable_stream: false
     stream_host: "10.42.0.113"
