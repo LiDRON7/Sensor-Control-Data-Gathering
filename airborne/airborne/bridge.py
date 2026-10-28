@@ -62,6 +62,7 @@ class AirborneBridge(Node):
         self.last_report = time.monotonic()
         self.forwarded_messages = 0
         self.forwarded_bytes = 0
+        self.uplinked_messages = 0
         # Keep processing serial data even when simulated ROS time is paused.
         self.timer = self.create_timer(
             self.settings["poll_interval"], self._poll,
@@ -124,6 +125,8 @@ class AirborneBridge(Node):
                         self.get_logger().info("Pixhawk heartbeat received; bridge running")
                 if self.ready:
                     self._forward(message)
+            if self.ready:
+                self._uplink()
 
             now = time.monotonic()
             if now - self.last_heartbeat >= self.settings["heartbeat_timeout"]:
@@ -131,7 +134,8 @@ class AirborneBridge(Node):
             if now - self.last_report >= self.settings["status_interval"]:
                 self.get_logger().info(
                     f"Forwarded {self.forwarded_messages} messages "
-                    f"({self.forwarded_bytes} bytes)"
+                    f"({self.forwarded_bytes} bytes); "
+                    f"uplinked {self.uplinked_messages} from ground"
                 )
                 self.last_report = now
         except Exception as error:
@@ -165,6 +169,17 @@ class AirborneBridge(Node):
             String(data=json.dumps(payload, allow_nan=False, separators=(",", ":")))
         )
         self.raw_publisher.publish(UInt8MultiArray(data=list(frame)))
+
+    def _uplink(self):
+        # Ground station commands (mode changes, RTL, arm/disarm) must reach the Pixhawk.
+        for _ in range(self.settings["max_messages_per_poll"]):
+            message = self.radio.recv_match(blocking=False)
+            if message is None:
+                return
+            if message.get_type() == "BAD_DATA":
+                continue
+            self.pixhawk.write(bytes(message.get_msgbuf()))
+            self.uplinked_messages += 1
 
     def _close_connections(self):
         for connection in (self.pixhawk, self.radio):
