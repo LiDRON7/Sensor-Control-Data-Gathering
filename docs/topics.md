@@ -11,7 +11,7 @@ Code: [node.py](../Oak_D_Pro_Config/ros2/oak_d_ros2/oak_d_ros2/node.py). The dep
 | Topic | Type | Used by | For |
 | --- | --- | --- | --- |
 | `/oakd/depth/image` | `sensor_msgs/Image`, 16-bit millimeters | autonomy perception and diagnostics | Closest obstacle straight ahead |
-| `/oakd/depth/points` | `sensor_msgs/PointCloud2`, camera frame | autonomy mission and diagnostics | Obstacle map for path planning |
+| `/oakd/depth/points` | `sensor_msgs/PointCloud2`, x forward, y left, z up (`oak_d_link`) | autonomy mission and diagnostics | Obstacle map for path planning |
 | `/oak/object_distances` | `oak_d_interfaces/ObjectDistanceArray` | `distance_subscriber` (debug tool) | Distance to each object the camera detects |
 
 ## PX4 (`px4-agent`)
