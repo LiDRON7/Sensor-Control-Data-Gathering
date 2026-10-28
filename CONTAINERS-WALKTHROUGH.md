@@ -70,7 +70,7 @@ ros() { docker exec -it airborne-bridge bash -lc "source /opt/ros/jazzy/setup.ba
 
 | Container | Log line that means it's working (`docker compose logs -f <name>`) | Data check |
 | --- | --- | --- |
-| `airborne-bridge` | `Pixhawk heartbeat received; bridge running`, then `Forwarded ... uplinked ... from ground` every 5 s | `ros topic hz /telemetry/mavlink` |
+| `airborne-bridge` | `Opened pixhawk` and `Opened radio`, then `Forwarded ... uplinked ... from ground` every 5 s | `ros topic hz /telemetry/mavlink` |
 | `px4-agent` | A `create_client` line once PX4 connects | `ros topic list \| grep fmu` |
 | `oak-d` | `Publishing object distances on /oak/object_distances` | `ros topic hz /oakd/depth/points` |
 | `velodyne` | `Velodyne ROS pipeline is running.` | `ros topic hz /velodyne_points` (about 9.9 Hz) |
@@ -100,7 +100,7 @@ You can build the images on a laptop to check they compile, but they come out `a
 | Symptom | Do this |
 | --- | --- |
 | `airborne-bridge` won't start | Check the path in `.env` exists: `ls -la /dev/serial/by-id/`. Inside the container: `docker exec airborne-bridge ls -l /dev/pixhawk /dev/radio`. |
-| `airborne-bridge` keeps waiting for a heartbeat | Check Pixhawk power, the USB cable, `PIXHAWK_DEVICE` and `SERIAL_GID`. The baud rate is `115200`. |
+| `airborne-bridge` logs `no valid MAVLink telemetry` | Check Pixhawk power, the USB cable, `PIXHAWK_DEVICE` and `SERIAL_GID`. The baud rate is `115200`. |
 | QGroundControl gets data but can't change modes | Check the log shows `uplinked` going up. If it stays at 0, check the ground radio. |
 | No `/fmu` topics | `docker compose logs px4-agent`. Check the TELEM2 wiring (TX to RX), `dtparam=uart0=on`, and the PX4 parameters `UXRCE_DDS_CFG = 102` and `SER_TEL2_BAUD = 921600`. |
 | No `/oakd` topics | `docker compose logs oak-d`. Check `lsusb \| grep 03e7` and the udev rule from the README. Check `publish_depth: true` in `oak.yaml`. |

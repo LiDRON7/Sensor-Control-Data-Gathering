@@ -30,12 +30,18 @@ The autonomy mission node sends `/fmu/in/offboard_control_mode`, `/fmu/in/trajec
 
 ## Telemetry (`airborne-bridge`)
 
-Code: [bridge.py](../airborne/airborne/bridge.py). The bridge also passes raw MAVLink between the Pixhawk USB port and the SiK radio, both ways, for QGroundControl.
+Code: [node.py](../airborne/airborne_telemetry/node.py). The bridge also passes raw MAVLink between the Pixhawk USB port and the SiK radio, both ways, for QGroundControl.
 
 | Topic | Type | Used by | For |
 | --- | --- | --- | --- |
 | `/telemetry/mavlink` | `std_msgs/String` (JSON) | nobody yet | Every MAVLink message from the Pixhawk, decoded |
 | `/telemetry/mavlink_raw` | `std_msgs/UInt8MultiArray` | nobody yet | The same messages as raw bytes |
+| `/gps/fix` | `sensor_msgs/NavSatFix` | nobody yet | GPS position from the Pixhawk (`GPS_RAW_INT`) |
+| `/gps/fix_type`, `/gps/satellites` | `std_msgs/UInt8` | nobody yet | Fix quality (6 is RTK fixed) and satellite count |
+| `/gps/rtk_fixed`, `/gps/fresh` | `std_msgs/Bool` | nobody yet | RTK fixed, and GPS heard in the last 3 s |
+| `/gps/altitude_msl` | `std_msgs/Float64` | nobody yet | Altitude above sea level |
+
+Autonomy gets its GPS straight from PX4 (`/fmu/out/vehicle_gps_position`), so it doesn't use the `/gps` topics.
 
 ## LiDAR (`velodyne`)
 
