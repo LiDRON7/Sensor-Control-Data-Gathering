@@ -2,8 +2,6 @@
 
 These containers run on the drone's Raspberry Pi 5. They connect the Pixhawk, the OAK-D Pro camera and the VLP-16 LiDAR to ROS 2, so the [Autonomous-Systems](https://github.com/LiDRON7/Autonomous-Systems) code can read them and fly the drone.
 
-![Power, data and radio connections](docs/architecture/lidron-2-connections.png)
-
 ## Start the flight-test containers
 
 ```bash
@@ -27,7 +25,7 @@ You should see `/fmu/out/vehicle_status` and `/oakd/depth/points`, among others.
 | `oak-d` | OAK-D Pro over USB | `/oakd/depth/image`, `/oakd/depth/points`, `/oak/object_distances` |
 | `velodyne` | VLP-16 over Ethernet | `/velodyne_points` |
 
-![How data moves from the sensors to PX4](docs/architecture/lidron-1-data-flow.png)
+![How data moves from the sensors to PX4](docs/architecture/DataFlow.excalidraw.png)
 
 ## Set up a new Pi (once)
 
@@ -63,4 +61,6 @@ docker run --rm --entrypoint bash sensor-control-data-gathering-oak-d:latest -lc
 
 ## More
 
-[CONTAINERS-WALKTHROUGH.md](CONTAINERS-WALKTHROUGH.md) has every command for building, running and debugging each container. To edit a diagram, open its `.excalidraw` file in `docs/architecture/` at [excalidraw.com](https://excalidraw.com).
+- [docs/topics.md](docs/topics.md): every topic, who sends it and who uses it.
+- [CONTAINERS-WALKTHROUGH.md](CONTAINERS-WALKTHROUGH.md): every command for building, running and debugging each container.
+- `docs/architecture/`: the data flow and wiring diagrams. Open the `.excalidraw` files at [excalidraw.com](https://excalidraw.com) to edit them.
