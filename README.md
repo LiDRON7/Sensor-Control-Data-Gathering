@@ -39,24 +39,7 @@ How everything is wired and powered:
 
 ## Set up a new Pi (once)
 
-1. Flash the Pixhawk with PX4 v1.15. In QGroundControl set `UXRCE_DDS_CFG = 102`, `SER_TEL2_BAUD = 921600` and `MAV_1_CONFIG = 0`.
-2. Wire Pixhawk TELEM2 to the Pi's UART pins: TX to RX, RX to TX, GND to GND.
-3. Add `dtparam=uart0=on` to `/boot/firmware/config.txt` and reboot.
-4. Run `ls /dev/serial/by-id/` to get the Pixhawk's USB name. It changes when you flash PX4.
-5. Create a `.env` file next to `compose.yaml`:
-
-   ```bash
-   PIXHAWK_DEVICE=/dev/serial/by-id/<name from step 4>
-   PX4_AGENT_DEVICE=/dev/ttyAMA0
-   ROS_DOMAIN_ID=0
-   ```
-
-6. Let the camera work without root, then unplug and replug it:
-
-   ```bash
-   echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="03e7", MODE="0666"' | sudo tee /etc/udev/rules.d/80-movidius.rules
-   sudo udevadm control --reload-rules && sudo udevadm trigger
-   ```
+Follow [docs/pi-setup.md](docs/pi-setup.md): wiring, Pi and PX4 settings, `.env`, and a 7-step check that everything works.
 
 ## Ground station
 
