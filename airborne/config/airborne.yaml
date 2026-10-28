@@ -1,13 +1,17 @@
-/**:
+airborne_bridge:
   ros__parameters:
-    pixhawk: /dev/serial/by-id/usb-ArduPilot_Pixhawk6X_43004E000251323436333634-if00
+    pixhawk: /dev/ttyACM0
     pixhawk_baud: 115200
-    radio: /dev/serial/by-id/usb-FTDI_FT231X_USB_UART_D30IL4V3-if00-port0
+    radio: /dev/ttyUSB0
     radio_baud: 57600
+    source_system: 245
+    target_system: 1
+    target_component: 1
     stream_rate: 10
     skip_stream_request: false
-    status_interval: 5.0
     reconnect_delay: 2.0
-    heartbeat_timeout: 10.0
-    poll_interval: 0.01
-    max_messages_per_poll: 100
+    link_timeout: 5.0
+    gps_timeout: 3.0
+    status_interval: 5.0
+    frame_id: gps_link
+    debug_gps: false
