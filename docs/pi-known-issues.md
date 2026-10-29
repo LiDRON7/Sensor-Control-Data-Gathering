@@ -78,6 +78,10 @@ Then unplug and replug the camera.
 
 **Fix:** set `UXRCE_DDS_CFG = 102`, `SER_TEL2_BAUD = 921600` and `MAV_1_CONFIG = 0` in QGroundControl, then reboot the Pixhawk.
 
+**Also happened:** on Oct 29 we set `UXRCE_DDS_CFG` with a pymavlink script. It sent `102` as a float, so PX4 saved `1120665600`, but reading it back over MAVLink still showed `102`. PX4 didn't start the DDS client at boot, and `uxrce_dds_client status` said `not running`. Setting it with `param set UXRCE_DDS_CFG 102` in the MAVLink Console fixed it.
+
+**Check:** in the MAVLink Console (QGroundControl → Analyze Tools), `param show UXRCE_DDS_CFG` prints exactly `102` and `uxrce_dds_client status` says `Running`.
+
 ## 6. The radio has a different name
 
 **What you see:** `airborne-bridge` won't start and the error names a `/dev/serial/by-id/...FTDI...` path.
@@ -99,3 +103,11 @@ Then unplug and replug the camera.
 **Why:** Tailscale SSH is in "check" mode, so it asks you to approve in the browser now and then. Each link only works for a few minutes.
 
 **Fix:** run `ssh lidron-cranberry@lidron-cranberry` again to get a new link, and open it right away with the LiDRON account.
+
+## 9. TELEM2 wired RX to RX
+
+**What you see:** `px4-agent` has no `create_client`, and `timeout 4 cat /dev/ttyAMA0 | wc -c` prints `0`, even though `uxrce_dds_client status` on the Pixhawk says `Running`.
+
+**Why:** the Pixhawk's RX wire was on the Pi's RX pin. Each side has to send on its TX into the other side's RX.
+
+**Fix:** turn the Pi off, then wire white (Pixhawk TX) to Pi pin 10 (RXD), yellow (Pixhawk RX) to Pi pin 8 (TXD), and black (GND) to Pi pin 6. See the drawing in [pi-setup.md](pi-setup.md#1-connect-the-hardware).
