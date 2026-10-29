@@ -192,14 +192,32 @@ class AirborneBridge(Node):
         self.gps_debug_state[key] = (count, now, values)
         self.get_logger().info("RAW_GPS " + json.dumps(record, separators=(",", ":")))
 
+    
     def handle_message(self, message, now):
         self.log_raw_gps(message, now)
+
         # Never repack: preserve IDs, sequence, version and signatures.
         frame = bytes(message.get_msgbuf())
+
         if frame:
+            # Identify the MAVLink protocol version from the frame's magic byte.
+            magic = frame[0]
+            version = {
+                0xFE: "MAVLink 1",
+                0xFD: "MAVLink 2",
+            }.get(magic, f"Unknown (0x{magic:02x})")
+
+            self.get_logger().info(
+                f"MAVLINK_TX version={version} "
+                f"magic=0x{magic:02x} "
+                f"msgid={message.get_msgId()} "
+                f"length={len(frame)}"
+            )
+
             # ROS telemetry remains available even if the radio is disconnected.
             self.publish_telemetry(message, frame)
             radio = self.connections["radio"]
+
             if radio is None:
                 self.dropped += 1
             else:
@@ -211,18 +229,27 @@ class AirborneBridge(Node):
                 except Exception as error:
                     self.dropped += 1
                     self.failed_link("radio", error)
-        if (message.get_srcSystem() != self.config["target_system"] or
-                message.get_srcComponent() != self.config["target_component"]):
+
+        if (
+            message.get_srcSystem() != self.config["target_system"]
+            or message.get_srcComponent() != self.config["target_component"]
+        ):
             return
+
         if message.get_type() == "GPS_RAW_INT":
             self.publish_gps(message, now)
+
         elif message.get_type() == "HEARTBEAT" and not self.requested:
             if not self.config["skip_stream_request"]:
                 self.connections["pixhawk"].mav.request_data_stream_send(
-                    message.get_srcSystem(), message.get_srcComponent(),
-                    mavutil.mavlink.MAV_DATA_STREAM_ALL, self.config["stream_rate"], 1,
+                    message.get_srcSystem(),
+                    message.get_srcComponent(),
+                    mavutil.mavlink.MAV_DATA_STREAM_ALL,
+                    self.config["stream_rate"],
+                    1,
                 )
             self.requested = True
+
 
     def uplink(self):
         """Forward ground station frames (mode changes, RTL, arm/disarm) to the Pixhawk."""
