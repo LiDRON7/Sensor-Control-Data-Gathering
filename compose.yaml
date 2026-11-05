@@ -9,6 +9,11 @@ services:
     network_mode: host
     ipc: host
     stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
     devices:
       # Each radio has its own serial number in the by-id name; set both in .env.
