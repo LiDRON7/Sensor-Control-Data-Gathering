@@ -111,3 +111,37 @@ Then unplug and replug the camera.
 **Why:** the Pixhawk's RX wire was on the Pi's RX pin. Each side has to send on its TX into the other side's RX.
 
 **Fix:** turn the Pi off, then wire white (Pixhawk TX) to Pi pin 10 (RXD), yellow (Pixhawk RX) to Pi pin 8 (TXD), and black (GND) to Pi pin 6. See the drawing in [pi-setup.md](pi-setup.md#1-connect-the-hardware).
+
+## 10. The camera keeps disconnecting
+
+**What you see:** `oak-d` keeps restarting with `No available devices`, even though the udev rule from issue 4 is there, and `/oakd/depth/points` is never published. Seen on Nov 2 and Nov 5, 2026.
+
+**Why:** the camera shows up as `03e7:2485` (Movidius MyriadX), loads its firmware, comes back as `03e7:f63b` (Luxonis Device), then drops within a few seconds and starts over. It drops when it starts drawing more current, so the most likely cause is not enough power: the Pi 5 limits USB to 600 mA when it doesn't detect a 5 A supply, and our step-down can't tell it that. On Nov 2 it also logged `over-current` on every USB port, and the Pi logged `Undervoltage detected!` at boot on Nov 5. A bad cable or a USB 2 port can look the same, so rule those out first.
+
+**Check it live:** run these on the Pi (see [connect-to-pi.md](connect-to-pi.md)). Press `Ctrl+C` to stop the ones that keep running.
+
+```bash
+# 1. Watch the camera connect and drop. Bad: 2485, f63b, USB disconnect, over and over. Good: one f63b line, then nothing.
+journalctl -kf | grep --line-buffered -E "03e7|USB disconnect"
+
+# 2. Is it connected right now? Good: it stays on 03e7:f63b Luxonis Device.
+watch -n1 'lsusb | grep 03e7'
+
+# 3. Why the container fails. Good: it keeps running with no traceback.
+docker logs -f --tail 20 oak-d
+
+# 4. Does autonomy get depth? Good: about 13 Hz. Bad: "does not appear to be published yet".
+auto() { docker exec lidron_autonomy bash -c "source /opt/ros/jazzy/setup.bash && source /autonomy/install/setup.bash && $*"; }
+auto ros2 topic hz /oakd/depth/points
+
+# 5. Is power dropping? Any line here while the camera loops points to power.
+journalctl -kf | grep --line-buffered -iE "voltage|over-current"
+```
+
+**Fix, in order:**
+
+1. Plug the camera into a blue USB 3 port.
+2. Plug it into a laptop with the same cable. If it runs steadily there, the camera and cable are fine and the Pi isn't giving it enough power.
+3. Give the camera more power: a USB Y-cable or powered hub with its own 5 V feed, or a 5 V/5 A step-down plus `usb_max_current_enable=1` in `/boot/firmware/config.txt`. Don't turn that setting on with a 3 A step-down. It only removes the limit, it doesn't add power.
+
+**Check:** check 1 stays quiet after one `f63b` line, and check 4 shows about 13 Hz.
