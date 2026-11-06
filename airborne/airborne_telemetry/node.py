@@ -207,7 +207,7 @@ class AirborneBridge(Node):
                 0xFD: "MAVLink 2",
             }.get(magic, f"Unknown (0x{magic:02x})")
 
-            self.get_logger().info(
+            self.get_logger().debug(
                 f"MAVLINK_TX version={version} "
                 f"magic=0x{magic:02x} "
                 f"msgid={message.get_msgId()} "
