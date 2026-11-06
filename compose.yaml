@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: airborne/Dockerfile
     container_name: airborne-bridge
+    # Off by default: the radio is on Pixhawk TELEM1. Only for the radio on the Pi's USB.
+    profiles: ["radio-bridge"]
     restart: unless-stopped
     init: true
     network_mode: host

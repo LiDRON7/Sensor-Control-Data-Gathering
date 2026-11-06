@@ -5,8 +5,10 @@ These containers run on the drone's Raspberry Pi 5. They connect the Pixhawk, th
 ## Start the flight-test containers
 
 ```bash
-docker compose up -d --build airborne-bridge px4-agent oak-d
+docker compose up -d --build px4-agent oak-d
 ```
+
+The SiK radio plugs into Pixhawk TELEM1, so QGroundControl talks to PX4 directly. `airborne-bridge` (radio on the Pi's USB instead) is off by default; start it with `docker compose --profile radio-bridge up -d airborne-bridge` only if the radio is on the Pi.
 
 The flight-test drone has no LiDAR, so `velodyne` stays off. To check that PX4 and the camera are publishing:
 

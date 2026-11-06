@@ -52,7 +52,7 @@ How to set up, start, check and fix each container on the Raspberry Pi. Run ever
 
 | What | Command |
 | --- | --- |
-| Flight test (no LiDAR) | `docker compose up -d --build airborne-bridge px4-agent oak-d` |
+| Flight test (no LiDAR) | `docker compose up -d --build px4-agent oak-d` |
 | Everything | `docker compose up -d --build` |
 | One container | `docker compose up -d --build oak-d` |
 | Status | `docker compose ps` |
