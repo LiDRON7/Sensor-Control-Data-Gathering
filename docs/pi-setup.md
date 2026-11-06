@@ -80,10 +80,13 @@ On the Pi, all three are in the outer row (along the board edge): the 3rd, 4th a
    | `SER_TEL2_BAUD` | `921600` |
    | `MAV_1_CONFIG` | `0` |
    | `COM_OBL_RC_ACT` | `4` (Land mode) |
+   | `MPC_XY_VEL_MAX` | `5.0` (mph, equivalent to 2.2352 m/s) |
 
    Set them in QGroundControl, not with a pymavlink script. A script that sends the number the wrong way saves `UXRCE_DDS_CFG` as `1120665600`, even though reading it back over MAVLink still shows `102`. PX4 then never starts the DDS client on TELEM2.
 
    **Offboard-loss failsafe:** `COM_OBL_RC_ACT = 4` configures PX4 to enter Land mode when offboard control is lost and the applicable failsafe is triggered. The currently verified timeout is `COM_OF_LOSS_T = 1.0 s`. This provides a fallback if the autonomy system stops sending offboard control updates.
+
+   **Horizontal speed limit:** `MPC_XY_VEL_MAX = 5.0 mph` (2.2352 m/s) limits the horizontal velocity commanded by PX4 during applicable position-controlled flight. Since autonomy sends position setpoints, PX4 determines the speed. This provides a conservative starting limit for the Widow flight tests.
 
 4. After the reboot, check the parameters in the MAVLink Console (Analyze Tools → MAVLink Console):
 
@@ -92,6 +95,7 @@ On the Pi, all three are in the outer row (along the board edge): the 3rd, 4th a
    param show SER_TEL2_BAUD
    param show MAV_1_CONFIG
    param show COM_OBL_RC_ACT
+   param show MPC_XY_VEL_MAX
    uxrce_dds_client status
    ```
 
@@ -102,6 +106,7 @@ On the Pi, all three are in the outer row (along the board edge): the 3rd, 4th a
    SER_TEL2_BAUD : 921600
    MAV_1_CONFIG : 0
    COM_OBL_RC_ACT : 4
+   MPC_XY_VEL_MAX : 2.2352
    ```
 
    The DDS client should report `Running`. It may report `Running, disconnected` when the Raspberry Pi's XRCE-DDS agent is not connected.
