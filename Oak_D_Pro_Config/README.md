@@ -31,8 +31,6 @@ ros2 launch oak_d_ros2 distances.launch.py
 ```
 
 The original viewer opens automatically. Q or Ctrl+C stops it and the ROS node.
-The old `autonomy.launch.py` and `detection.launch.py` names are compatibility
-aliases for this same distance-only launcher.
 
 For operation without a desktop window:
 

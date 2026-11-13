@@ -1,6 +1,6 @@
 # Sensor-Control-Data-Gathering
 
-These containers run on the drone's Raspberry Pi 5. They connect the Pixhawk, the OAK-D Pro camera and the VLP-16 LiDAR to ROS 2, so the [Autonomous-Systems](https://github.com/LiDRON7/Autonomous-Systems) code can read them and fly the drone.
+These containers run on the drone's Raspberry Pi 5. They connect the Pixhawk, the OAK-D Pro camera and the Velodyne Puck LITE LiDAR to ROS 2, so the [Autonomous-Systems](https://github.com/LiDRON7/Autonomous-Systems) code can read them and fly the drone.
 
 ## Start the flight-test containers
 
@@ -25,7 +25,7 @@ You should see `/fmu/out/vehicle_status` and `/oakd/depth/points`, among others.
 | `airborne-bridge` | Pixhawk USB and the SiK radio, both ways | `/telemetry/mavlink` |
 | `px4-agent` | Pixhawk TELEM2 to ROS 2 | `/fmu/out/*`, and listens on `/fmu/in/*` |
 | `oak-d` | OAK-D Pro over USB | `/oakd/depth/image`, `/oakd/depth/points`, `/oak/object_distances` |
-| `velodyne` | VLP-16 over Ethernet | `/velodyne_points` |
+| `velodyne` | Puck LITE over Ethernet (it is the light VLP-16, same driver and settings) | `/velodyne_points` |
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/architecture/data-flow-dark.png">

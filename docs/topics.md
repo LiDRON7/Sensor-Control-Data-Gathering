@@ -51,6 +51,5 @@ Off for the flight test.
 | --- | --- | --- | --- |
 | `/velodyne_points` | `sensor_msgs/PointCloud2` | not connected yet | 3D point cloud |
 | `/velodyne_packets` | `velodyne_msgs/VelodyneScan` | the point cloud converter | Raw scans |
-| `/scan` | `sensor_msgs/LaserScan` | nobody yet | 2D slice of the cloud |
 
 Autonomy reads the LiDAR on `/lidar/points`. When the LiDAR is mounted, point the autonomy `lidar_topic` parameter at `/velodyne_points`.

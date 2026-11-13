@@ -31,13 +31,6 @@ ros2 launch \
     velodyne_transform_node-VLP16-composed-launch.py &
 child_pids+=("$!")
 
-sleep 2
-
-echo "Starting Velodyne laser-scan conversion..."
-ros2 launch \
-    velodyne_laserscan \
-    velodyne_laserscan_node-launch.py &
-child_pids+=("$!")
 
 echo "Velodyne ROS pipeline is running."
 
