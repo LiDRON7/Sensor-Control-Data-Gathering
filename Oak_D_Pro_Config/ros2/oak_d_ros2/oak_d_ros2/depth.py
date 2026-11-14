@@ -3,6 +3,13 @@
 import numpy as np
 
 
+def upright(depth_mm, intrinsics):
+    """Turn a frame from the upside-down camera (mounted that way for the cable) and its intrinsics 180 deg."""
+    height, width = depth_mm.shape[:2]
+    (fx, _, cx), (_, fy, cy) = intrinsics[0], intrinsics[1]
+    return depth_mm[::-1, ::-1], [[fx, 0.0, width - 1 - cx], [0.0, fy, height - 1 - cy], [0.0, 0.0, 1.0]]
+
+
 def depth_points(depth_mm, intrinsics, step=8, min_m=0.2, max_m=20.0):
     """Back-project every step-th pixel to meters, as FLU (x forward, y left, z up).
 

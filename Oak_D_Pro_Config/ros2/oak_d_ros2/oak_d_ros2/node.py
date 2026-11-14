@@ -22,7 +22,7 @@ from std_msgs.msg import Header
 
 from oak_d_interfaces.msg import ObjectDistanceArray
 
-from .depth import depth_points
+from .depth import depth_points, upright
 from .messages import distance_message
 
 
@@ -56,6 +56,8 @@ class OakDistanceNode(Node):
             self.stream_fps = self.declare_parameter('stream_fps', 15, descriptor).value
 
             self.publish_depth = self.declare_parameter('publish_depth', False, descriptor).value
+            # Both drones carry the camera upside down; without the turn obstacles land mirrored in the map.
+            self.upside_down = self.declare_parameter('upside_down', True, descriptor).value
 
             if not self.frame_id:
                 raise ValueError('frame_id must not be empty')
@@ -106,6 +108,8 @@ class OakDistanceNode(Node):
             return
         try:
             resized = cv2.resize(frame, (self.stream_width, self.stream_height))
+            if self.upside_down:
+                resized = cv2.rotate(resized, cv2.ROTATE_180)
             if not resized.flags['C_CONTIGUOUS']:
                 resized = resized.copy()
             self._stream_queue.put_nowait(resized.tobytes())
@@ -148,6 +152,10 @@ class OakDistanceNode(Node):
             calibration = pipeline.getDefaultDevice().readCalibration()
             # Depth is aligned to CAM_A, so its intrinsics at the depth resolution apply.
             self._intrinsics = calibration.getCameraIntrinsics(dai.CameraBoardSocket.CAM_A, width, height)
+        intrinsics = self._intrinsics
+        if self.upside_down:
+            depth, intrinsics = upright(depth, intrinsics)
+            depth = depth.copy()
         header = self._header(depth_message.getTimestamp())
         self.depth_image_pub.publish(Image(
             header=header, height=height, width=width, encoding='16UC1',
@@ -155,7 +163,7 @@ class OakDistanceNode(Node):
         ))
         # The cloud is FLU (see depth.py), so it gets its own frame instead of the optical one.
         points_header = Header(stamp=header.stamp, frame_id='oak_d_link')
-        self.depth_points_pub.publish(create_cloud_xyz32(points_header, depth_points(depth, self._intrinsics)))
+        self.depth_points_pub.publish(create_cloud_xyz32(points_header, depth_points(depth, intrinsics)))
 
     def _start_gstreamer(self):
         command = [
