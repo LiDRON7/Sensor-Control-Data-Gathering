@@ -12,11 +12,12 @@ If something that used to work stops working, read [pi-known-issues.md](pi-known
 | --- | --- | --- |
 | Pixhawk TELEM2 | Pi GPIO pins 10, 8 and 6 (see below) | `px4-agent` (autonomy talks to PX4) |
 | SiK radio | Pixhawk **TELEM1**, not the Pi | QGroundControl on the ground radio |
-| OAK-D Pro | data: a **blue** USB 3 port on the Pi. Power: a Y-adapter fed by the 5 V buck | `oak-d` |
-| Pi power | a 5 V / 5 A buck from the battery, before the PM02D | the Pi |
+| OAK-D Pro | a **blue** USB 3 port on the Pi (data and power) | `oak-d` |
+| Pi power | a Yahboom YB-MPP01 board (6 to 24 V in, 5 V / 5 A USB-C PD out). Widow: straight from the 3S. Huntsman: from the 12 V step-down, because a full 6S (25.2 V) is over the board's 24 V limit | the Pi |
+| Ground RTK base | Tersus PRECIS base on the laptop's USB, not on the drone | QGroundControl |
 | H-RTK GPS (10-pin plug) | Pixhawk **GPS1**, not the Pi | PX4 |
 
-Power the camera through the Y-adapter, not from the Pi's USB alone. Without a 5 A USB-C supply, the Pi 5 gives all its USB ports 600 mA combined, and the OAK-D Pro needs about 1 A, so it keeps disconnecting (see issue 10 in [pi-known-issues.md](pi-known-issues.md#10-the-camera-keeps-disconnecting)).
+The Yahboom board speaks USB-C PD, so the Pi 5 sees a 5 A supply and gives its USB ports 1.6 A. That is enough for the OAK-D Pro (about 1 A), so the camera no longer needs the Y-adapter. Check it: `vcgencmd get_config usb_max_current_enable` should print `1` without you setting it, and `dmesg` should show no undervoltage. If the camera still drops, see issue 10 in [pi-known-issues.md](pi-known-issues.md#10-the-camera-keeps-disconnecting). A few buyers say the board puts out 4.96 V with some noise, so watch for the Pi's low-voltage warning on the first bench run.
 
 Don't also plug the radio into the Pi's USB. Its USB port and its TELEM1 cable share one serial line, so the Pi and the Pixhawk talk over each other and QGroundControl can't connect. With the radio on TELEM1, the ground link keeps working even if the Pi crashes. The Pixhawk's USB-C isn't needed in flight.
 
@@ -70,13 +71,14 @@ On the Pi, all three are in the outer row (along the board edge): the 3rd, 4th a
    sudo reboot
    ```
 
-5. Get both repos on the `flight-test` branch, in `~/LiDRON/`.
+5. Get both repos on `main`, in `~/LiDRON/`. `main` is the code that last flew or passed the simulator.
 
 ## 3. Set up PX4 (once per Pixhawk)
 
 1. In QGroundControl, flash **PX4 1.15.x**. Not 1.16 or newer: they rename topics and autonomy gets no data.
-2. Calibrate the sensors, the radio and the flight modes.
-3. Set these parameters, then reboot (Vehicle Setup → Parameters → Tools → Reboot Vehicle):
+2. Set the airframe to Generic Hexarotor x (6001) on both drones, with the Pixhawk and GPS arrows pointing at the camera. Run the motor test in Actuators.
+3. Calibrate the sensors, the radio and the flight modes.
+4. Set these parameters, then reboot (Vehicle Setup → Parameters → Tools → Reboot Vehicle):
 
    | Parameter | Value |
    | --- | --- |
@@ -94,7 +96,7 @@ On the Pi, all three are in the outer row (along the board edge): the 3rd, 4th a
 
    **Horizontal speed limit:** `MPC_XY_VEL_MAX = 2.2352` m/s (5 mph) limits the horizontal velocity commanded by PX4 during applicable position-controlled flight. Since autonomy sends position setpoints, PX4 determines the speed. This provides a conservative starting limit for the Widow flight tests.
 
-4. After the reboot, check the parameters in the MAVLink Console (Analyze Tools → MAVLink Console):
+5. After the reboot, check the parameters in the MAVLink Console (Analyze Tools → MAVLink Console):
 
    ```text
    param show UXRCE_DDS_CFG
@@ -192,12 +194,12 @@ Each of these is explained in more detail in [pi-known-issues.md](pi-known-issue
 
 | Problem | Fix |
 | --- | --- |
-| `px4-agent` has no `create_client` | 1) `uxrce_dds_client status` in the MAVLink Console says `Running` (step 3.4). 2) `systemctl status serial-getty@ttyAMA0` says masked (step 2.4). 3) The TELEM2 wires are tight and TX/RX are crossed. With the agent stopped, `stty -F /dev/ttyAMA0 921600 raw; timeout 4 cat /dev/ttyAMA0 \| wc -c` must print more than 0. |
+| `px4-agent` has no `create_client` | 1) `uxrce_dds_client status` in the MAVLink Console says `Running` (step 3.5). 2) `systemctl status serial-getty@ttyAMA0` says masked (step 2.4). 3) The TELEM2 wires are tight and TX/RX are crossed. With the agent stopped, `stty -F /dev/ttyAMA0 921600 raw; timeout 4 cat /dev/ttyAMA0 \| wc -c` must print more than 0. |
 | `oak-d` keeps restarting with `No available devices` or `Insufficient permissions` | The udev rule from step 2 is missing. Add it, then unplug and replug the camera. |
 | Camera topics exist in `oak-d` but not in autonomy | Every container needs `FASTDDS_BUILTIN_TRANSPORTS=UDPv4` (it's in both compose files). |
 | Camera rate is low | It's in a black USB 2 port. Move it to a blue one. |
 | Camera connects, then drops every few seconds | Probably not enough power. See issue 10 in [pi-known-issues.md](pi-known-issues.md#10-the-camera-keeps-disconnecting) for the checks and fixes. |
 | PX4 says no GPS, even with the LED on | Reseat the 10-pin plug in GPS1 and reboot the Pixhawk. Indoors it should still show as present, just with no fix. |
-| QGroundControl can't connect over the radio | The radio must be on Pixhawk TELEM1 only, not also on the Pi's USB. Then check `MAV_0_CONFIG` and `SER_TEL1_BAUD` (step 3.4). |
+| QGroundControl can't connect over the radio | The radio must be on Pixhawk TELEM1 only, not also on the Pi's USB. Then check `MAV_0_CONFIG` and `SER_TEL1_BAUD` (step 3.5). |
 
 For everyday commands (logs, restart, update), see the [containers walkthrough](../CONTAINERS-WALKTHROUGH.md).

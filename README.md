@@ -29,7 +29,7 @@ You should see `/fmu/out/vehicle_status` and `/oakd/depth/points`, among others.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/architecture/data-flow-dark.png">
-  <img alt="How data moves from the sensors to PX4" src="docs/architecture/data-flow-light.png">
+  <img alt="Who talks to whom: sensors, the Pi, PX4, QGroundControl and the RTK base" src="docs/architecture/data-flow-light.png">
 </picture>
 
 How everything is wired and powered:
@@ -46,6 +46,20 @@ Follow [docs/pi-setup.md](docs/pi-setup.md): wiring, Pi and PX4 settings, `.env`
 ## Ground station
 
 Use QGroundControl with the second SiK radio. Mission Planner can't switch PX4 flight modes reliably, so don't fly PX4 with it.
+
+The Tersus PRECIS RTK base goes on the ground laptop's USB. QGroundControl sends its corrections up the SiK link and PX4 hands them to the drone's H-RTK F9P. Setup steps are in [Telemetry-Communication](https://github.com/LiDRON7/Telemetry-Communication#set-up-the-ground-station). The laptop reaches the Pi itself over the Pi's Wi-Fi hotspot (SSH, ROS 2, camera video on UDP 5600).
+
+## Power
+
+The Pi runs off a Yahboom YB-MPP01 board: 6 to 24 V in, 5 V / 5 A out over USB-C PD. Because it negotiates 5 A, the Pi gives its USB ports 1.6 A and the OAK-D runs straight off the Pi's USB, no Y-adapter. Widow feeds it from its 3S. Huntsman's 6S is up to 25.2 V, over the board's 24 V limit, so it feeds it from the 12 V step-down. Details in [docs/pi-setup.md](docs/pi-setup.md).
+
+## The camera is mounted upside down
+
+Both drones carry the OAK-D upside down so the cable clears the frame. `upside_down: true` in the `oak-d` container turns every depth frame and the video 180 degrees before publishing, so obstacles land on the right side of the map.
+
+<img src="docs/img/oak-upside-down-before.png" width="400" alt="Depth image before the fix: upside down"> <img src="docs/img/oak-upside-down-after.png" width="400" alt="Depth image after the fix: right side up">
+
+On the drone, put a hand on the camera's left and check it shows up on the left of `/oakd/depth/image`.
 
 ## Tests
 

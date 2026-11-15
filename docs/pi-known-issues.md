@@ -142,6 +142,6 @@ journalctl -kf | grep --line-buffered -iE "voltage|over-current"
 
 1. Plug the camera into a blue USB 3 port.
 2. Plug it into a laptop with the same cable. If it runs steadily there, the camera and cable are fine and the Pi isn't giving it enough power.
-3. Give the camera more power: a USB Y-cable or powered hub with its own 5 V feed, or a 5 V/5 A step-down plus `usb_max_current_enable=1` in `/boot/firmware/config.txt`. Don't turn that setting on with a 3 A step-down. It only removes the limit, it doesn't add power.
+3. Give the camera more power. The drones now power the Pi from a Yahboom YB-MPP01 USB-C PD board, which gives the USB ports 1.6 A on its own. Without it: a USB Y-cable or powered hub with its own 5 V feed, or a 5 V/5 A step-down plus `usb_max_current_enable=1` in `/boot/firmware/config.txt`. Don't turn that setting on with a 3 A step-down. It only removes the limit, it doesn't add power.
 
 **Check:** check 1 stays quiet after one `f63b` line, and check 4 shows about 13 Hz.
