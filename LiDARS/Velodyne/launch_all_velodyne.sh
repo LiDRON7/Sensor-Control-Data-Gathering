@@ -24,18 +24,12 @@ ros2 launch velodyne_pointcloud velodyne_transform_node-VLP16-composed-launch.py
 PID_TRANSFORM=$!
 sleep 2
 
-echo "Starting Velodyne Laserscan..."
-# Launches the laserscan node
-ros2 launch velodyne_laserscan velodyne_laserscan_node-launch.py &
-PID_SCAN=$!
-sleep 2
-
 echo "Starting RViz2..."
 rviz2 &
 PID_RVIZ=$!
 
 # Trap SIGINT (Ctrl+C) to kill all background processes
-trap "echo 'Stopping all nodes...'; kill $PID_DRIVER $PID_TRANSFORM $PID_SCAN $PID_RVIZ; exit" SIGINT
+trap "echo 'Stopping all nodes...'; kill $PID_DRIVER $PID_TRANSFORM $PID_RVIZ; exit" SIGINT
 
 # Wait for processes to finish
 wait

@@ -18,6 +18,9 @@ MAX_DISTANCE_M = 20.0
 # 0.10 = center 10% of the bounding box.
 DEPTH_ROI_SIZE = 0.10
 
+# Optional scalar-only ROS bridge; standalone execution uses the original loop.
+_ros_bridge = globals().get("_ros_bridge")
+
 # ---------------------------------------------------------
 # CREATE PIPELINE
 # ---------------------------------------------------------
@@ -86,6 +89,9 @@ with dai.Pipeline() as pipeline:
     detectionQueue = detector.out.createOutputQueue()
     depthQueue = stereo.depth.createOutputQueue()
 
+    if _ros_bridge is not None:
+        _ros_bridge.set_labels(detector.getClasses() or [])
+
     # -----------------------------------------------------
     # START PIPELINE
     # -----------------------------------------------------
@@ -106,7 +112,7 @@ with dai.Pipeline() as pipeline:
     # -----------------------------------------------------
     # MAIN LOOP
     # -----------------------------------------------------
-    while pipeline.isRunning():
+    while pipeline.isRunning() and (_ros_bridge is None or _ros_bridge.ok()):
 
         # -------------------------------------------------
         # GET RGB FRAME
@@ -114,6 +120,9 @@ with dai.Pipeline() as pipeline:
         frameMessage = frameQueue.get()
         frame = frameMessage.getCvFrame()
         height, width = frame.shape[:2]
+
+        if _ros_bridge is not None and hasattr(_ros_bridge, 'stream_frame'):
+            _ros_bridge.stream_frame(frame)
 
         # -------------------------------------------------
         # GET DETECTIONS
@@ -127,9 +136,13 @@ with dai.Pipeline() as pipeline:
         depthFrame = depthMessage.getFrame()
         depthHeight, depthWidth = depthFrame.shape[:2]
 
+        if _ros_bridge is not None and hasattr(_ros_bridge, 'submit_depth'):
+            _ros_bridge.submit_depth(depthMessage, pipeline)
+
         # -------------------------------------------------
         # PROCESS EACH DETECTION
         # -------------------------------------------------
+        ros_distances = [] if _ros_bridge is not None else None
         for detection in detectionMessage.detections:
 
             # ---------------------------------------------
@@ -310,6 +323,9 @@ with dai.Pipeline() as pipeline:
                     distance_mm / 1000.0
                 )
 
+                if _ros_bridge is not None:
+                    ros_distances.append((int(detection.label), distance_m))
+
                 # Convert meters → feet
                 distance_ft = (
                     distance_m * 3.28084
@@ -348,6 +364,9 @@ with dai.Pipeline() as pipeline:
 
             else:
 
+                if _ros_bridge is not None:
+                    ros_distances.append((int(detection.label), float("nan")))
+
                 # -----------------------------------------
                 # NO VALID DEPTH
                 # -----------------------------------------
@@ -365,14 +384,20 @@ with dai.Pipeline() as pipeline:
         # -------------------------------------------------
         # DISPLAY
         # -------------------------------------------------
-        cv2.imshow(
-            "OAK-D Pro - Object Distance",
-            frame
-        )
+        if _ros_bridge is not None:
+            _ros_bridge.submit_distances(frameMessage.getTimestamp(), ros_distances)
 
-        key = cv2.waitKey(1) & 0xFF
+        if _ros_bridge is None or _ros_bridge.show_preview:
+            cv2.imshow(
+                "OAK-D Pro - Object Distance",
+                frame
+            )
 
-        if key == ord("q"):
-            break
+            key = cv2.waitKey(1) & 0xFF
 
-cv2.destroyAllWindows()
+            if key == ord("q"):
+                break
+
+
+if _ros_bridge is None or _ros_bridge.show_preview:
+    cv2.destroyAllWindows()

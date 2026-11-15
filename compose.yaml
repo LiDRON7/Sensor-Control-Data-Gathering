@@ -1,0 +1,141 @@
+services:
+  airborne-bridge:
+    build:
+      context: .
+      dockerfile: airborne/Dockerfile
+    container_name: airborne-bridge
+    # Off by default: the radio is on Pixhawk TELEM1. Only for the radio on the Pi's USB.
+    profiles: ["radio-bridge"]
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    ipc: host
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    devices:
+      # Each radio has its own serial number in the by-id name; set both in .env.
+      - ${PIXHAWK_DEVICE:-/dev/serial/by-id/usb-Auterion_PX4_FMU_v6X.x_0-if00}:/dev/pixhawk
+      - ${RADIO_DEVICE:-/dev/serial/by-id/usb-FTDI_FT231X_USB_UART_D30IL4V3-if00-port0}:/dev/radio
+
+    group_add:
+      - "${SERIAL_GID:-20}"
+
+    environment:
+      ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
+      # Containers run as different users, so Fast DDS shared memory between them fails; use UDP.
+      FASTDDS_BUILTIN_TRANSPORTS: UDPv4
+
+    security_opt:
+      - no-new-privileges:true
+
+    command:
+      - ros2
+      - run
+      - airborne_telemetry
+      - airborne_bridge
+      - --ros-args
+      - -p
+      - pixhawk:=/dev/pixhawk
+      - -p
+      - pixhawk_baud:=115200
+      - -p
+      - radio:=/dev/radio
+      - -p
+      - radio_baud:=57600
+      - -p
+      - source_system:=245
+      - -p
+      - target_system:=1
+      - -p
+      - target_component:=1
+      - -p
+      - stream_rate:=4
+      - -p
+      - frame_id:=gps_link
+
+  # Connects PX4 (TELEM2) to ROS 2: /fmu/in/* and /fmu/out/* for the autonomy code.
+  px4-agent:
+    image: microros/micro-ros-agent:jazzy
+    container_name: px4-agent
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    ipc: host
+
+    devices:
+      - ${PX4_AGENT_DEVICE:-/dev/ttyAMA0}:/dev/px4
+
+    environment:
+      ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
+      # Containers run as different users, so Fast DDS shared memory between them fails; use UDP.
+      FASTDDS_BUILTIN_TRANSPORTS: UDPv4
+
+    command: ["serial", "--dev", "/dev/px4", "-b", "921600"]
+
+  velodyne:
+    build:
+      context: .
+      dockerfile: LiDARS/Velodyne/Dockerfile
+    container_name: velodyne
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    ipc: host
+    stop_grace_period: 20s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    environment:
+      ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
+      # Containers run as different users, so Fast DDS shared memory between them fails; use UDP.
+      FASTDDS_BUILTIN_TRANSPORTS: UDPv4
+
+    security_opt:
+      - no-new-privileges:true
+
+  oak-d:
+    build:
+      context: .
+      dockerfile: Oak_D_Pro_Config/Dockerfile
+    container_name: oak-d
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    ipc: host
+    stop_grace_period: 20s
+
+    # The OAK-D changes USB device number when DepthAI uploads its firmware.
+    # Binding the complete USB bus keeps the re-enumerated device visible.
+    volumes:
+      - type: bind
+        source: /dev/bus/usb
+        target: /dev/bus/usb
+
+    # USB device files use character-device major number 189.
+    device_cgroup_rules:
+      - "c 189:* rmw"
+
+    environment:
+      ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
+      # Containers run as different users, so Fast DDS shared memory between them fails; use UDP.
+      FASTDDS_BUILTIN_TRANSPORTS: UDPv4
+      DEPTHAI_DISABLE_CRASHDUMP_COLLECTION: "1"
+
+    security_opt:
+      - no-new-privileges:true
+
+    command:
+      - ros2
+      - launch
+      - oak_d_ros2
+      - distances.launch.py
+      - show_preview:=false
