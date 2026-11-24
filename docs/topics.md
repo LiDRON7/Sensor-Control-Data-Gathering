@@ -58,7 +58,8 @@ Autonomy reads the LiDAR on `/lidar/points`. When the LiDAR is mounted, point th
 
 Proposed interface contract for the Raspberry Pi bridge that translates QGroundControl MAVLink commands into existing ROS 2 autonomy services.
 
-The following interface is pending team review and SITL validation.
+The interface has been implemented and tested using PX4 SITL.
+Team review and QGroundControl end-to-end validation remain pending.
 Physical transport validation depends on Issue #138.
 
 ### Component identity
@@ -73,6 +74,11 @@ Physical transport validation depends on Issue #138.
 | Base mode | 0 |
 | Custom mode | 0 |
 | Heartbeat frequency | 1 Hz |
+| Mission state freshness limit | 2 seconds |
+| Command processing timeout | 5 seconds per applicable stage |
+
+Heartbeat transmission begins after the bridge receives
+a PX4 heartbeat.
 
 The heartbeat identifies the bridge as an onboard component, not as a flight controller. Component ID uniqueness must be verified before deployment.
 
@@ -134,6 +140,10 @@ The bridge returns one final `COMMAND_ACK` per received command addressed to it.
 
 An accepted acknowledgment confirms that the requested operation was accepted, not that the entire mission or flight maneuver has completed.
 
+For Resume, an accepted acknowledgment does not guarantee an
+immediate transition out of HOLD. Mission recovery remains
+subject to the existing autonomy health and obstacle checks.
+
 For Check, the bridge also returns the preflight service response
 message through MAVLink `STATUSTEXT`, using the prefix `LIDRON_CHECK:`.
 Messages exceeding the 50-byte text limit use MAVLink 2 STATUSTEXT chunking to preserve the complete preflight result.
@@ -173,7 +183,13 @@ The bridge forwards the state reported by autonomy without changing its meaning.
 
 ### Transport and validation
 
-The bridge uses a MAVLink connection to PX4. Development and integration testing use PX4 SITL and QGroundControl over UDP.
+The bridge uses a MAVLink connection to PX4.
+SITL integration testing uses a pymavlink test client over UDP.
+The development bridge listens on UDP port 14540.
+QGroundControl end-to-end validation remains pending.
+
+See [Issue #139 integration test results](testing/issue-139.md)
+for test evidence, results, and known limitations.
 
 The physical Raspberry Pi to Pixhawk USB connection and MAVLink routing must be validated with hardware once the Issue #138 transport is available.
 
@@ -184,6 +200,8 @@ The physical Raspberry Pi to Pixhawk USB connection and MAVLink routing must be 
 - Start must not bypass the preflight check.
 - Pause must use `/autonomy/enable` (`false`), not QGroundControl's
   native Hold command.
-- Resume must only be requested while the mission is in `HOLD`.
+- Resume requires a fresh mission state of `HOLD`.
+- Start requires a fresh mission state of `IDLE`, `COMPLETE`,
+  or `ABORT`.
 - Start must not be treated as Resume.
 - Existing pilot override and autonomy safety checks must be preserved.
