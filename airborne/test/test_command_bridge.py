@@ -1,7 +1,7 @@
 """Unit tests for the MAVLink command bridge."""
 
 import time
-from unittest.mock import Mock 
+from unittest.mock import Mock
 import pytest
 from airborne_telemetry.command_bridge import CommandBridge
 
@@ -159,3 +159,29 @@ def test_invalid_preflight_json(bridge):
 
     assert bridge.preflight_result is None
     assert bridge.preflight_received_at is None
+
+def test_ack_preserves_command_and_recipient(bridge):
+    bridge.connection = Mock()
+
+    CommandBridge.send_ack(bridge, 31010, 0, 254, 190)
+
+    bridge.connection.mav.command_ack_send.assert_called_once_with(
+        31010, 0, 0, 0, 254, 190
+    )
+
+def test_finish_command_clears_pending(bridge):
+    bridge.pending_command = {
+        "command_id": 31010,
+        "source_system": 254,
+        "source_component": 190
+    }
+
+    CommandBridge.finish_command(bridge, 0)
+
+    assert bridge.pending_command is None
+    bridge.send_ack.assert_called_once_with(31010, 0, 254, 190)
+
+def test_finish_command_without_pending(bridge):
+    bridge.pending_command = None
+    CommandBridge.finish_command(bridge, 0)
+    bridge.send_ack.assert_not_called()
