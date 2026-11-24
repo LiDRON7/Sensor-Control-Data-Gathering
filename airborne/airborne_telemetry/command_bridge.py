@@ -230,6 +230,13 @@ class CommandBridge(Node):
                 source_component
             )
 
+        elif command_id in (CMD_PAUSE, CMD_RESUME, CMD_ABORT):
+            self.request_mission_action(
+                command_id,
+                source_system,
+                source_component
+            )
+
         else:
             self.send_ack(
                 command_id,
@@ -237,6 +244,80 @@ class CommandBridge(Node):
                 source_system,
                 source_component
             )
+
+    def request_mission_action(self, command_id, source_system, source_component):
+
+        # Reject commands while another command is pending
+        if self.pending_command is not None:
+            self.send_ack(
+                command_id,
+                mavutil.mavlink.MAV_RESULT_TEMPORARILY_REJECTED,
+                source_system,
+                source_component
+            )
+            return
+
+        # Resume must not start a new mission
+        if command_id == CMD_RESUME:
+            if (
+                not self.is_mission_state_fresh()
+                or self.mission_state != "HOLD"
+            ):
+
+                self.get_logger().warning("Resume requires a fresh HOLD state")
+                self.send_ack(
+                    command_id,
+                    mavutil.mavlink.MAV_RESULT_DENIED,
+                    source_system,
+                    source_component
+                )
+                return
+
+        # Select the appropriate autonomy service
+        if command_id == CMD_ABORT:
+            client = self.abort_client
+            request = Trigger.Request()
+
+        else:
+            client = self.enable_client
+            request = SetBool.Request()
+            request.data = command_id == CMD_RESUME
+
+        # Verify service availability
+        if not client.service_is_ready():
+            self.get_logger().warning("Autonomy service unavailable")
+            self.send_ack(
+                command_id,
+                mavutil.mavlink.MAV_RESULT_FAILED,
+                source_system,
+                source_component
+            )
+            return
+
+        # Send asynchronous service request
+        try:
+            future = client.call_async(request)
+
+        except Exception as error:
+            self.get_logger().error(f"Mission action request failed: {error}")
+            self.send_ack(
+                command_id,
+                mavutil.mavlink.MAV_RESULT_FAILED,
+                source_system,
+                source_component
+            )
+            return
+
+        self.pending_command = {
+            "command_id": command_id,
+            "source_system": source_system,
+            "source_component": source_component,
+            "future": future,
+            "stage": "MISSION_ACTION",
+            "deadline": time.monotonic() + self.command_timeout_s
+        }
+
+        self.get_logger().info(f"{COMMAND_NAMES[command_id]} requested")
 
     def request_preflight(self, command_id, source_system, source_component):
 
@@ -509,8 +590,8 @@ class CommandBridge(Node):
                 self.get_logger().error(f"Enable request error: {error}")
                 self.finish_command(mavutil.mavlink.MAV_RESULT_FAILED)
 
-        # Process autonomy activation
-        elif pending["stage"] == "ENABLE":
+        # Process autonomy service responses
+        elif pending["stage"] in ("ENABLE", "MISSION_ACTION"):
             self.process_service_response(future)
 
     def send_statustext(self, text, severity):
