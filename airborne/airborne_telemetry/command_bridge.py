@@ -342,6 +342,30 @@ class CommandBridge(Node):
 
         return True
 
+    def process_service_response(self, future):
+        if not future.done():
+            return
+
+        try:
+            response = future.result()
+
+            self.get_logger().info(
+                f"Service response: success={response.success}, "
+                f"message={response.message}"
+            )
+            result = (
+                mavutil.mavlink.MAV_RESULT_ACCEPTED
+                if response.success
+                else mavutil.mavlink.MAV_RESULT_DENIED
+            )
+
+        except Exception as exc:
+            self.get_logger().error(f"Service request failed: {exc}")
+            result = mavutil.mavlink.MAV_RESULT_FAILED
+
+        self.finish_command(result)
+
+
     def finish_command(self, result):
 
         if self.pending_command is None:
@@ -487,26 +511,7 @@ class CommandBridge(Node):
 
         # Process autonomy activation
         elif pending["stage"] == "ENABLE":
-            if not future.done():
-                return
-
-            try:
-                response = future.result()
-                self.get_logger().info(
-                    f"Enable response: success={response.success}, "
-                    f"message={response.message}"
-                )
-
-                if response.success:
-                    result = mavutil.mavlink.MAV_RESULT_ACCEPTED
-                else:
-                    result = mavutil.mavlink.MAV_RESULT_DENIED
-
-                self.finish_command(result)
-
-            except Exception as error:
-                self.get_logger().error(f"Enable service error: {error}")
-                self.finish_command(mavutil.mavlink.MAV_RESULT_FAILED)
+            self.process_service_response(future)
 
     def send_statustext(self, text, severity):
         payload = text.encode("utf-8")
