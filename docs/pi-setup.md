@@ -127,6 +127,20 @@ On the Pi, all three are in the outer row (along the board edge): the 3rd, 4th a
 
    **Verified on Pixhawk:** PX4 1.15.4dev, with `COM_OBL_RC_ACT = 4` (Land mode), confirmed using `param show COM_OBL_RC_ACT` in QGroundControl's MAVLink Console.
 
+### USB MAVLink setup verified on Widow
+
+For the [Issue #138 bench test](https://github.com/LiDRON7/Autonomous-Systems/issues/138), we used QGroundControl Daily over the SiK radio on TELEM1. The Raspberry Pi connected to the Pixhawk over USB, and the existing ROS 2 DDS connection stayed on TELEM2.
+
+The test scripts opened the Pixhawk at `/dev/serial/by-id/usb-Auterion_PX4_FMU_v6X.x_0-if00`, the same path as `PIXHAWK_DEVICE` in the example below. On another Pi, run `ls -l /dev/serial/by-id/` to confirm the Pixhawk's path.
+
+| PX4 parameter | Value observed on Widow |
+| --- | --- |
+| `MAV_0_FORWARD` | `1` |
+| `SYS_USB_AUTO` | `2` |
+| `USB_MAV_MODE` | `2` |
+
+These values were already set on Widow when we tested. To check them on another Pixhawk, run `param show MAV_0_FORWARD`, `param show SYS_USB_AUTO`, and `param show USB_MAV_MODE` in the QGroundControl MAVLink Console.
+
 ## 4. Start everything
 
 1. Create `~/LiDRON/Sensor-Control-Data-Gathering/.env`. `PIXHAWK_DEVICE` and `RADIO_DEVICE` are only used by `airborne-bridge`, which flight tests don't run, so they can stay as below:
