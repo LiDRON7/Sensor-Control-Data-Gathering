@@ -110,6 +110,16 @@ A single Start command performs the following sequence:
 
 A failed, missing, stale, or uncorrelated preflight result must not enable the mission. A previously cached result must not be reused as the result of a new Start request.
 
+#### Preflight correlation limitation
+
+The existing preflight result interface does not include a unique
+request identifier. The bridge validates result timestamps,
+reception time, and the number of received results.
+
+SITL integration tests assume the bridge is the only active
+preflight client. Concurrent external preflight requests require
+additional coordination before hardware deployment.
+
 ### Command acknowledgements
 
 The bridge returns one final `COMMAND_ACK` per received command addressed to it. The acknowledgment includes the original command ID and targets the requesting system and component.
