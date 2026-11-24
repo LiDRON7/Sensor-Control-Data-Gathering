@@ -540,3 +540,282 @@ def test_preflight_service_unavailable(action_bridge, command_id):
     )
 
     assert action_bridge.pending_command is None
+
+def test_start_successful_lifecycle(action_bridge):
+    future = Mock()
+    future.done.return_value = True
+    future.result.return_value = Mock(
+        success=True,
+        message="Preflight passed"
+    )
+
+    action_bridge.pending_command = {
+        "command_id": CMD_START,
+        "source_system": 254,
+        "source_component": 190,
+        "future": future,
+        "stage": "PREFLIGHT",
+        "deadline": time.monotonic() + 5.0
+    }
+
+    action_bridge.preflight_result_count = 1
+    action_bridge.is_preflight_valid.return_value = True
+
+    # Stage 1: Preflight service response
+    CommandBridge.process_pending_command(action_bridge)
+
+    assert action_bridge.pending_command["stage"] == ("WAIT_PREFLIGHT_RESULT")
+    action_bridge.enable_client.call_async.assert_not_called()
+
+    # Stage 2: Published result validation
+    CommandBridge.process_pending_command(action_bridge)
+
+    assert action_bridge.pending_command["stage"] == ("READY_TO_ENABLE")
+    action_bridge.enable_client.call_async.assert_not_called()
+
+    # Stage 3: Enable autonomy
+    CommandBridge.process_pending_command(action_bridge)
+
+    assert action_bridge.pending_command["stage"] == "ENABLE"
+
+    action_bridge.enable_client.call_async.assert_called_once()
+
+    request = action_bridge.enable_client.call_async.call_args.args[0]
+
+    assert isinstance(request, SetBool.Request)
+    assert request.data is True
+
+    # Stage 4: Enable service response
+    enable_future = action_bridge.pending_command["future"]
+
+    enable_future.done.return_value = True
+    enable_future.result.return_value = Mock(
+        success=True,
+        message="Autonomy enabled"
+    )
+
+    action_bridge.process_service_response.side_effect = (
+        lambda future: CommandBridge.process_service_response(action_bridge, future)
+    )
+
+    CommandBridge.process_pending_command(action_bridge)
+
+    action_bridge.finish_command.assert_called_once_with( mavutil.mavlink.MAV_RESULT_ACCEPTED)
+
+def test_start_failed_preflight(action_bridge):
+    future = Mock()
+    future.done.return_value = True
+    future.result.return_value = Mock(
+        success=False,
+        message="Preflight failed"
+    )
+
+    action_bridge.pending_command = {
+        "command_id": CMD_START,
+        "source_system": 254,
+        "source_component": 190,
+        "future": future,
+        "stage": "PREFLIGHT",
+        "deadline": time.monotonic() + 5.0
+    }
+
+    CommandBridge.process_pending_command(action_bridge)
+
+    action_bridge.finish_command.assert_called_once_with(mavutil.mavlink.MAV_RESULT_DENIED)
+
+    action_bridge.enable_client.call_async.assert_not_called()
+
+@pytest.mark.parametrize("count, valid", [
+    (1, False),
+    (2, True),
+    (3, True),
+])
+
+def test_start_rejects_invalid_preflight(
+    action_bridge, count, valid
+):
+    action_bridge.pending_command = {
+        "command_id": CMD_START,
+        "source_system": 254,
+        "source_component": 190,
+        "future": Mock(),
+        "stage": "WAIT_PREFLIGHT_RESULT",
+        "deadline": time.monotonic() + 5.0
+    }
+
+    action_bridge.preflight_result_count = count
+    action_bridge.is_preflight_valid.return_value = valid
+
+    CommandBridge.process_pending_command(action_bridge)
+
+    action_bridge.finish_command.assert_called_once_with(mavutil.mavlink.MAV_RESULT_DENIED)
+
+    action_bridge.enable_client.call_async.assert_not_called()
+
+@pytest.mark.parametrize("state, fresh, valid, ready, expected", [
+    ("HOLD", True, True, True, mavutil.mavlink.MAV_RESULT_DENIED),
+    ("NAVIGATING", True, True, True, mavutil.mavlink.MAV_RESULT_DENIED),
+    ("PILOT_OVERRIDE", True, True, True, mavutil.mavlink.MAV_RESULT_DENIED),
+    ("IDLE", False, True, True, mavutil.mavlink.MAV_RESULT_DENIED),
+    ("IDLE", True, False, True, mavutil.mavlink.MAV_RESULT_DENIED),
+    ("IDLE", True, True, False, mavutil.mavlink.MAV_RESULT_FAILED),
+])
+
+def test_start_final_validation(action_bridge, state, fresh, valid, ready, expected):
+    action_bridge.pending_command = {
+        "command_id": CMD_START,
+        "source_system": 254,
+        "source_component": 190,
+        "future": Mock(),
+        "stage": "READY_TO_ENABLE",
+        "deadline": time.monotonic() + 5.0
+    }
+
+    action_bridge.mission_state = state
+
+    action_bridge.state_received_at = (time.monotonic() if fresh else time.monotonic() - 10.0)
+
+    action_bridge.is_preflight_valid.return_value = valid
+    action_bridge.enable_client.service_is_ready.return_value = ready
+
+    CommandBridge.process_pending_command(action_bridge)
+
+    action_bridge.finish_command.assert_called_once_with(expected)
+    action_bridge.enable_client.call_async.assert_not_called()
+
+@pytest.mark.parametrize("command_id, handler", [
+    (CMD_CHECK, "request_preflight"),
+    (CMD_START, "request_preflight"),
+    (CMD_PAUSE, "request_mission_action"),
+    (CMD_RESUME, "request_mission_action"),
+    (CMD_ABORT, "request_mission_action"),
+])
+def test_mavlink_command_routing(action_bridge, command_id, handler):
+    action_bridge.system_id = 1
+    action_bridge.component_id = 192
+
+    message = Mock()
+    message.target_system = 1
+    message.target_component = 192
+    message.command = command_id
+    message.get_srcSystem.return_value = 254
+    message.get_srcComponent.return_value = 190
+
+    CommandBridge.handle_command(action_bridge, message)
+
+    getattr(action_bridge, handler).assert_called_once_with(command_id, 254, 190)
+
+    action_bridge.send_ack.assert_not_called()
+
+@pytest.mark.parametrize("system, component", [
+    (2, 192),
+    (1, 1),
+    (1, 0),
+])
+def test_ignore_wrong_mavlink_target(action_bridge, system, component):
+    action_bridge.system_id = 1
+    action_bridge.component_id = 192
+
+    message = Mock()
+    message.target_system = system
+    message.target_component = component
+    message.command = CMD_START
+
+    CommandBridge.handle_command(action_bridge, message)
+
+    action_bridge.request_preflight.assert_not_called()
+    action_bridge.request_mission_action.assert_not_called()
+    action_bridge.send_ack.assert_not_called()
+
+def test_unsupported_mavlink_command(action_bridge):
+    action_bridge.system_id = 1
+    action_bridge.component_id = 192
+
+    message = Mock()
+    message.target_system = 1
+    message.target_component = 192
+    message.command = 9999
+    message.get_srcSystem.return_value = 254
+    message.get_srcComponent.return_value = 190
+
+    CommandBridge.handle_command(action_bridge, message)
+
+    action_bridge.send_ack.assert_called_once_with(
+        9999,
+        mavutil.mavlink.MAV_RESULT_UNSUPPORTED,
+        254,
+        190
+    )
+
+    action_bridge.request_preflight.assert_not_called()
+    action_bridge.request_mission_action.assert_not_called()
+
+def test_heartbeat_when_connected(action_bridge):
+    action_bridge.px4_connected = True
+    action_bridge.connection = Mock()
+
+    CommandBridge.send_heartbeat(action_bridge)
+
+    action_bridge.connection.mav.heartbeat_send.assert_called_once_with(
+        mavutil.mavlink.MAV_TYPE_ONBOARD_CONTROLLER,
+        mavutil.mavlink.MAV_AUTOPILOT_INVALID,
+        0,
+        0,
+        mavutil.mavlink.MAV_STATE_ACTIVE
+    )
+
+    action_bridge.send_mission_status.assert_called_once()
+
+
+def test_heartbeat_when_disconnected(action_bridge):
+    action_bridge.px4_connected = False
+    action_bridge.connection = Mock()
+
+    CommandBridge.send_heartbeat(action_bridge)
+
+    action_bridge.connection.mav.heartbeat_send.assert_not_called()
+    action_bridge.send_mission_status.assert_not_called()
+
+def test_short_statustext(action_bridge):
+    action_bridge.connection = Mock()
+
+    CommandBridge.send_statustext(
+        action_bridge,
+        "LIDRON_CHECK:Preflight passed",
+        mavutil.mavlink.MAV_SEVERITY_INFO
+    )
+
+    action_bridge.connection.mav.statustext_send.assert_called_once_with(
+        mavutil.mavlink.MAV_SEVERITY_INFO,
+        b"LIDRON_CHECK:Preflight passed",
+        0,
+        0
+    )
+
+
+@pytest.mark.parametrize("length", [50, 75, 100, 120])
+def test_long_statustext_chunking(action_bridge, length):
+    action_bridge.connection = Mock()
+    action_bridge.statustext_id = 0
+
+    text = "A" * length
+
+    CommandBridge.send_statustext(
+        action_bridge,
+        text,
+        mavutil.mavlink.MAV_SEVERITY_INFO
+    )
+
+    calls = action_bridge.connection.mav.statustext_send.call_args_list
+
+    reconstructed = b"".join(call.args[1] for call in calls)
+
+    assert reconstructed == text.encode("utf-8") + b"\x00"
+
+    for index, call in enumerate(calls):
+        severity, chunk, message_id, sequence = call.args
+
+        assert severity == mavutil.mavlink.MAV_SEVERITY_INFO
+        assert len(chunk) <= 50
+        assert message_id == 1
+        assert sequence == index
