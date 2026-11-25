@@ -9,7 +9,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.clock import Clock, ClockType
 from std_srvs.srv import Trigger, SetBool
-from interfaces.srv import StartMission
+from interfaces.srv import StartMission, StartPreflight
 from std_msgs.msg import String
 from pymavlink import mavutil
 
@@ -74,6 +74,7 @@ class CommandBridge(Node):
 
         # ROS 2 autonomy service clients
         self.preflight_client = self.create_client(Trigger, "/autonomy/preflight_check")
+        self.start_preflight_client = self.create_client(StartPreflight, "/autonomy/start_preflight")
         self.prepare_start_client = self.create_client(Trigger, "/autonomy/prepare_start")
         self.start_client = self.create_client(StartMission, "/autonomy/start")
         self.enable_client = self.create_client(SetBool, "/autonomy/enable")
@@ -132,14 +133,38 @@ class CommandBridge(Node):
 
     def on_preflight_result(self, message):
 
-        if self.pending_command is not None:
-            self.preflight_result_count += 1
+        pending = self.pending_command
 
         try:
             result = json.loads(message.data)
 
             if not isinstance(result, dict):
                 raise ValueError("Invalid preflight result")
+
+            if pending is None:
+                return
+
+            if pending["command_id"] == CMD_START:
+                token = pending.get("authorization_token")
+
+                if (
+                    pending["stage"] not in {
+                        "PREFLIGHT",
+                        "WAIT_PREFLIGHT_RESULT",
+                        "READY_TO_START",
+                    }
+                    or not token
+                    or result.get("authorization_token") != token
+                ):
+                    return
+
+            elif pending["command_id"] == CMD_CHECK:
+                if "authorization_token" in result:
+                    return
+            else:
+                return
+
+            self.preflight_result_count += 1
 
             success = result["success"]
             checked_at = result["checked_at_s"]
@@ -157,7 +182,10 @@ class CommandBridge(Node):
             self.preflight_result = result
             self.preflight_received_at = time.monotonic()
 
-            self.get_logger().info(f"Preflight result received {result}")
+            self.get_logger().info(
+                f"Preflight result received: success={success}, "
+                f"checked_at_s={checked_at}"
+            )
 
         except (ValueError, KeyError, TypeError, OverflowError) as error:
             self.preflight_result = None
@@ -498,6 +526,10 @@ class CommandBridge(Node):
         if self.preflight_result["success"] is not True:
             return False
 
+        token = pending.get("authorization_token")
+        if not token or self.preflight_result.get("authorization_token") != token:
+            return False
+
         if self.preflight_received_at < pending["requested_at_monotonic"]:
             return False
 
@@ -643,7 +675,7 @@ class CommandBridge(Node):
                     )
                     return
 
-                if not self.preflight_client.service_is_ready():
+                if not self.start_preflight_client.service_is_ready():
                     self.get_logger().warning(
                         "Preflight service unavailable"
                     )
@@ -663,9 +695,10 @@ class CommandBridge(Node):
                 )
                 pending["requested_at_monotonic"] = time.monotonic()
 
-                pending["future"] = self.preflight_client.call_async(
-                    Trigger.Request()
-                )
+                request = StartPreflight.Request()
+                request.authorization_token = token
+
+                pending["future"] = self.start_preflight_client.call_async(request)
                 pending["stage"] = "PREFLIGHT"
                 pending["deadline"] = (
                     time.monotonic() + self.command_timeout_s

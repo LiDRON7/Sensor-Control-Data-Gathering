@@ -282,3 +282,92 @@ approval, and final reviewer approval remain outstanding.
 
 Integrated Widow hardware validation is tracked
 separately under LiDRON7/Autonomous-Systems#144.
+
+## Second Review Validation
+
+### Start Preflight Correlation
+
+Start-specific preflight results include an authorization
+token. An independent Check cannot authorize a pending Start.
+
+Automated validation:
+- Preflight suite: 69 passed.
+- Navigation suite: 188 passed.
+- Independent Check regression test: PASS.
+- Command Bridge suite: 109 passed.
+
+### Start Timeout Communication Tests
+
+Two additional isolated unit tests passed:
+
+- test_start_timeout_reports_outcome_not_confirmed
+- test_status_reporting_after_start_timeout
+
+A Start reply timeout does not cancel a request already
+dispatched to autonomy.
+
+### Remaining Validation
+
+- Delayed Start response in PX4 SITL.
+- QGroundControl timeout notification.
+- Actual mission state reporting in QGroundControl.
+- Abort availability following the timeout.
+- Review of preflight invalidation after a failed Check.
+
+The isolated unit tests do not replace integrated SITL
+validation.
+
+### Additional Regression Validation
+
+The full Command Bridge test suite passed:
+112 passed, 0 failed.
+
+The additional regression test
+test_state_update_after_start_timeout verifies
+that a simulated mission state update received
+after a Start timeout is still reported.
+
+PX4 SITL environment recovery was also verified:
+- Autonomy state: IDLE.
+- Simulation clock available.
+- PX4 preflight checks: passed.
+- Failsafe: false.
+
+These results establish unit-level communication
+behavior and simulation environment readiness.
+They do not establish integrated delayed Start,
+QGroundControl notification, or post-timeout
+Abort validation.
+
+### Preflight Invalidation Review
+
+Code review identified a remaining safety concern:
+
+An independent failed Check clears the general
+preflight timestamp but may leave a previously
+passing Start-specific preflight timestamp intact.
+
+The existing regression tests verify general
+preflight invalidation but do not cover this
+specific interleaving.
+
+Expected invalidation behavior requires confirmation
+from the autonomy maintainers before final acceptance.
+
+Status: OPEN.
+
+### MAVLink Protocol Validation
+
+Added test/test_mavlink_protocol.py.
+
+Results:
+- Timeout warning encoding: PASS.
+- Mission state encoding: PASS.
+- Total: 2 passed, 0 failed.
+
+Both tests use the production STATUSTEXT encoding
+method and decode the resulting MAVLink messages
+to verify their content and severity.
+
+These are protocol-level tests, not end-to-end
+SITL or QGroundControl validation.

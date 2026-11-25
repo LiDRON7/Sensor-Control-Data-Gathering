@@ -60,7 +60,7 @@ Proposed interface contract for the Raspberry Pi bridge that translates QGroundC
 
 The interface has been implemented and tested using PX4 SITL.
 QGroundControl SITL command validation has been performed.
-Full Resume state recovery remains unconfirmed.
+Full Resume state recovery was demonstrated in QGroundControl SITL.
 Team review remains pending.
 Integrated Widow hardware validation is tracked under Autonomous-Systems#144.
 
@@ -91,7 +91,7 @@ Commands use `COMMAND_LONG` and explicitly target the bridge's system and compon
 | Action | MAVLink command | Command ID | ROS 2 interface |
 | --- | --- | --- | --- |
 | Check | `MAV_CMD_USER_1` | 31010 | `/autonomy/preflight_check` |
-| Start | `MAV_CMD_USER_2` | 31011 | `/autonomy/prepare_start`, preflight check, then `/autonomy/start` |
+| Start | `MAV_CMD_USER_2` | 31011 | `/autonomy/prepare_start`, `/autonomy/start_preflight`, then `/autonomy/start` |
 | Pause | `MAV_CMD_USER_3` | 31012 | `/autonomy/enable` (`false`) |
 | Resume | `MAV_CMD_USER_4` | 31013 | `/autonomy/resume` |
 | Abort | `MAV_CMD_USER_5` | 31014 | `/autonomy/abort` |
@@ -104,6 +104,7 @@ Commands use `COMMAND_LONG` and explicitly target the bridge's system and compon
 | `/autonomy/preflight_result` | `std_msgs/String` (JSON) | Subscriber |
 | `/autonomy/enable` | `std_srvs/SetBool` | Service client (Pause only) |
 | `/autonomy/prepare_start` | `std_srvs/Trigger` | Start authorization client |
+| `/autonomy/start_preflight` | `interfaces/StartPreflight` | Correlated preflight client |
 | `/autonomy/start` | `interfaces/StartMission` | Authorized Start client |
 | `/autonomy/resume` | `std_srvs/Trigger` | Explicit Resume client |
 | `/autonomy/abort` | `std_srvs/Trigger` | Service client |
@@ -114,7 +115,7 @@ Commands use `COMMAND_LONG` and explicitly target the bridge's system and compon
 A single Start command performs the following sequence:
 
 1. Request a one-time Start authorization through `/autonomy/prepare_start`.
-2. Request `/autonomy/preflight_check`.
+2. Request `/autonomy/start_preflight` using the authorization token.
 3. Wait for the service response and corresponding `/autonomy/preflight_result`.
 4. Validate the passing result and its timestamp within the 30-second window.
 5. Request `/autonomy/start` using the authorization token.
@@ -124,15 +125,11 @@ Failed Start preflight responses are reported to QGroundControl through `STATUST
 
 A failed, missing, stale, or uncorrelated preflight result must not enable the mission. A previously cached result must not be reused as the result of a new Start request.
 
-#### Preflight correlation limitation
+#### Preflight correlation
 
-The existing preflight result interface does not include a unique
-request identifier. The bridge validates result timestamps,
-reception time, and the number of received results.
-
-SITL integration tests assume the bridge is the only active
-preflight client. Concurrent external preflight requests require
-additional coordination before hardware deployment.
+Start-specific preflight results include an authorization token.
+Independent Check results cannot authorize a pending Start.
+An automated regression test verifies this isolation.
 
 ### Command acknowledgements
 
@@ -156,6 +153,23 @@ For Check, the bridge also returns the preflight service response
 message through MAVLink `STATUSTEXT`, using the prefix `LIDRON_CHECK:`.
 Messages exceeding the 50-byte text limit use MAVLink 2 STATUSTEXT chunking to preserve the complete preflight result.
 The final `COMMAND_ACK` indicates whether the check passed or failed.
+
+### Start reply timeout
+
+A Start reply timeout does not cancel a Start request already
+dispatched to autonomy. The bridge reports:
+
+    LIDRON_START:Timeout; outcome not confirmed
+
+A timeout must not be interpreted as confirmation that the
+mission was not started. The operator must consult the actual
+mission state reported by autonomy.
+
+The bridge clears its pending command after the timeout.
+Abort remains available, but its outcome must be independently
+confirmed.
+
+Delayed Start response validation in SITL remains pending.
 
 ### Mission status
 
@@ -228,5 +242,5 @@ Integrated Raspberry Pi, Pixhawk, and Widow hardware validation is tracked under
 ### Cross-repository dependency
 
 The updated bridge requires the corresponding autonomy services and
-StartMission interface implemented in Autonomous-Systems.
+StartMission and StartPreflight interfaces implemented in Autonomous-Systems.
 Both repositories must use compatible versions.
