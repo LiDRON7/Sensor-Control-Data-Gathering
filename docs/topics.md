@@ -4,6 +4,27 @@ Every ROS 2 topic these containers publish, and who uses it. The autonomy side i
 
 To see them live: `docker exec oak-d bash -lc "source /opt/ros/jazzy/setup.bash && ros2 topic list"`.
 
+## Autonomy topics for flight recording
+
+Record these topics for the [automatic flight recorder](https://github.com/LiDRON7/Sensor-Control-Data-Gathering/issues/97) and the [post-flight mission timeline](https://github.com/LiDRON7/Autonomous-Systems/issues/145).
+
+| Topic | Type | Used by | For |
+| --- | --- | --- | --- |
+| `/autonomy/state` | `std_msgs/String` | flight recorder | Mission state, such as `HOLD` or `ABORT` |
+| Structured status from [Autonomous-Systems #142](https://github.com/LiDRON7/Autonomous-Systems/issues/142) | Pending confirmation from Edwin | flight recorder, mission timeline | Mission state and the reason for changes |
+| `/autonomy/preflight_result` | `std_msgs/String` (JSON) | flight recorder, mission timeline | Pass/fail and the check timestamp |
+| `/autonomy/path` | `nav_msgs/Path` | flight recorder | Planned route |
+| `/autonomy/occupancy_grid` | `nav_msgs/OccupancyGrid` | flight recorder | Obstacle map used for planning |
+| `/landing/assessment` | `std_msgs/String` (JSON) | flight recorder | Landing-site assessment and reason when published |
+| `/fmu/out/vehicle_status` | `px4_msgs/VehicleStatus` | flight recorder, mission timeline | Arming, disarming, and PX4 mode changes |
+| `/fmu/out/vehicle_command_ack` | `px4_msgs/VehicleCommandAck` | flight recorder, mission timeline | PX4 command outcomes, including rejections |
+
+The #142 status topic is still pending. Add its exact ROS 2 topic name and message type to the recorder list once Edwin confirms them.
+
+Record `/oakd/depth/image` at a reduced rate per #97. Omit full-rate `/oakd/depth/points`.
+
+Preflight runs before arming, when the per-flight bag has yet to start. The current result message carries only `success` and `checked_at_s`. The failure details are in the `/autonomy/preflight_check` service response. The recorder and autonomy owners still need to agree on how to preserve pre-arm results and their failure details.
+
 ## Camera (`oak-d`)
 
 Code: [node.py](../Oak_D_Pro_Config/ros2/oak_d_ros2/oak_d_ros2/node.py). The depth topics only exist when `publish_depth: true` in [oak.yaml](../Oak_D_Pro_Config/ros2/oak_d_ros2/config/oak.yaml).
