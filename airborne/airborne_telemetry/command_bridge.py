@@ -9,6 +9,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.clock import Clock, ClockType
 from std_srvs.srv import Trigger, SetBool
+from interfaces.srv import StartMission
 from std_msgs.msg import String
 from pymavlink import mavutil
 
@@ -73,7 +74,10 @@ class CommandBridge(Node):
 
         # ROS 2 autonomy service clients
         self.preflight_client = self.create_client(Trigger, "/autonomy/preflight_check")
+        self.prepare_start_client = self.create_client(Trigger, "/autonomy/prepare_start")
+        self.start_client = self.create_client(StartMission, "/autonomy/start")
         self.enable_client = self.create_client(SetBool, "/autonomy/enable")
+        self.resume_client = self.create_client(Trigger, "/autonomy/resume")
         self.abort_client = self.create_client(Trigger, "/autonomy/abort")
 
         # Autonomy state and preflight tracking
@@ -223,8 +227,15 @@ class CommandBridge(Node):
             f"component {source_component}"
         )
 
-        if command_id in (CMD_CHECK, CMD_START):
+        if command_id == CMD_CHECK:
             self.request_preflight(
+                command_id,
+                source_system,
+                source_component
+            )
+
+        elif command_id == CMD_START:
+            self.request_start_authorization(
                 command_id,
                 source_system,
                 source_component
@@ -247,15 +258,42 @@ class CommandBridge(Node):
 
     def request_mission_action(self, command_id, source_system, source_component):
 
-        # Reject commands while another command is pending
+        # Abort has priority over other pending commands
         if self.pending_command is not None:
-            self.send_ack(
-                command_id,
-                mavutil.mavlink.MAV_RESULT_TEMPORARILY_REJECTED,
-                source_system,
-                source_component
+            if (
+                command_id != CMD_ABORT
+                or self.pending_command["command_id"] == CMD_ABORT
+            ):
+                self.send_ack(
+                    command_id,
+                    mavutil.mavlink.MAV_RESULT_TEMPORARILY_REJECTED,
+                    source_system,
+                    source_component
+                )
+                return
+
+            interrupted = self.pending_command
+            future = interrupted["future"]
+
+            self.get_logger().warning(
+                f"Abort interrupted {COMMAND_NAMES[interrupted['command_id']]}"
             )
-            return
+
+            if not future.done():
+                future.cancel()
+
+            self.send_statustext(
+                f"LIDRON_{COMMAND_NAMES[interrupted['command_id']].upper()}:Interrupted by Abort",
+                mavutil.mavlink.MAV_SEVERITY_WARNING
+            )
+
+            self.finish_command(
+                mavutil.mavlink.MAV_RESULT_FAILED
+            )
+
+            self.preflight_result = None
+            self.preflight_received_at = None
+            self.preflight_result_count = 0
 
         # Resume must not start a new mission
         if command_id == CMD_RESUME:
@@ -278,14 +316,23 @@ class CommandBridge(Node):
             client = self.abort_client
             request = Trigger.Request()
 
+        elif command_id == CMD_RESUME:
+            client = self.resume_client
+            request = Trigger.Request()
+
         else:
             client = self.enable_client
             request = SetBool.Request()
-            request.data = command_id == CMD_RESUME
+            request.data = False
 
         # Verify service availability
         if not client.service_is_ready():
             self.get_logger().warning("Autonomy service unavailable")
+            if command_id == CMD_ABORT:
+                self.send_statustext(
+                    "LIDRON_ABORT:Service unavailable; not confirmed",
+                    mavutil.mavlink.MAV_SEVERITY_WARNING
+                )
             self.send_ack(
                 command_id,
                 mavutil.mavlink.MAV_RESULT_FAILED,
@@ -300,6 +347,11 @@ class CommandBridge(Node):
 
         except Exception as error:
             self.get_logger().error(f"Mission action request failed: {error}")
+            if command_id == CMD_ABORT:
+                self.send_statustext(
+                    "LIDRON_ABORT:Request failed; not confirmed",
+                    mavutil.mavlink.MAV_SEVERITY_WARNING
+                )
             self.send_ack(
                 command_id,
                 mavutil.mavlink.MAV_RESULT_FAILED,
@@ -318,6 +370,53 @@ class CommandBridge(Node):
         }
 
         self.get_logger().info(f"{COMMAND_NAMES[command_id]} requested")
+
+    def request_start_authorization(self, command_id, source_system, source_component):
+
+        if self.pending_command is not None:
+            self.send_ack(
+                command_id,
+                mavutil.mavlink.MAV_RESULT_TEMPORARILY_REJECTED,
+                source_system,
+                source_component
+            )
+            return
+
+        if not self.prepare_start_client.service_is_ready():
+            self.get_logger().warning("Prepare Start service unavailable")
+            self.send_ack(
+                command_id,
+                mavutil.mavlink.MAV_RESULT_FAILED,
+                source_system,
+                source_component
+            )
+            return
+
+        try:
+            future = self.prepare_start_client.call_async(
+                Trigger.Request()
+            )
+
+        except Exception as error:
+            self.get_logger().error(f"Prepare Start request error: {error}")
+            self.send_ack(
+                command_id,
+                mavutil.mavlink.MAV_RESULT_FAILED,
+                source_system,
+                source_component
+            )
+            return
+
+        self.pending_command = {
+            "command_id": command_id,
+            "source_system": source_system,
+            "source_component": source_component,
+            "future": future,
+            "stage": "PREPARE_START",
+            "deadline": time.monotonic() + self.command_timeout_s
+        }
+
+        self.get_logger().info("Start authorization requested")
 
     def request_preflight(self, command_id, source_system, source_component):
 
@@ -440,8 +539,27 @@ class CommandBridge(Node):
                 else mavutil.mavlink.MAV_RESULT_DENIED
             )
 
+            if not response.success and self.pending_command is not None:
+                command_id = self.pending_command["command_id"]
+
+                if command_id in (CMD_START, CMD_ABORT):
+                    name = COMMAND_NAMES[command_id].upper()
+                    self.send_statustext(
+                        f"LIDRON_{name}:{response.message}",
+                        mavutil.mavlink.MAV_SEVERITY_WARNING
+                    )
+
         except Exception as exc:
             self.get_logger().error(f"Service request failed: {exc}")
+            if self.pending_command is not None:
+                command_id = self.pending_command["command_id"]
+
+                if command_id in (CMD_START, CMD_ABORT):
+                    name = COMMAND_NAMES[command_id].upper()
+                    self.send_statustext(
+                        f"LIDRON_{name}:Outcome not confirmed",
+                        mavutil.mavlink.MAV_SEVERITY_WARNING
+                    )
             result = mavutil.mavlink.MAV_RESULT_FAILED
 
         self.finish_command(result)
@@ -478,7 +596,93 @@ class CommandBridge(Node):
                 future.cancel()
 
             self.get_logger().warning(f"Command timed out during {pending['stage']}")
+            if pending["command_id"] == CMD_ABORT:
+                self.send_statustext(
+                    "LIDRON_ABORT:Timeout; not confirmed",
+                    mavutil.mavlink.MAV_SEVERITY_WARNING
+                )
+            elif pending["command_id"] == CMD_START:
+                self.send_statustext(
+                    "LIDRON_START:Timeout; outcome not confirmed",
+                    mavutil.mavlink.MAV_SEVERITY_WARNING
+                )
             self.finish_command(mavutil.mavlink.MAV_RESULT_FAILED)
+            return
+
+        # Process Start authorization response
+        if pending["stage"] == "PREPARE_START":
+
+            if not future.done():
+                return
+
+            try:
+                response = future.result()
+
+                if not response.success:
+                    self.send_statustext(
+                        f"LIDRON_START:{response.message}",
+                        mavutil.mavlink.MAV_SEVERITY_WARNING
+                    )
+                    self.finish_command(
+                        mavutil.mavlink.MAV_RESULT_DENIED
+                    )
+                    return
+
+                token = response.message
+
+                if (
+                    not isinstance(token, str)
+                    or len(token) != 32
+                    or any(c not in "0123456789abcdef" for c in token)
+                ):
+                    self.get_logger().warning(
+                        "Invalid Start authorization token"
+                    )
+                    self.finish_command(
+                        mavutil.mavlink.MAV_RESULT_FAILED
+                    )
+                    return
+
+                if not self.preflight_client.service_is_ready():
+                    self.get_logger().warning(
+                        "Preflight service unavailable"
+                    )
+                    self.finish_command(
+                        mavutil.mavlink.MAV_RESULT_FAILED
+                    )
+                    return
+
+                # Clear previous preflight results
+                self.preflight_result = None
+                self.preflight_received_at = None
+                self.preflight_result_count = 0
+
+                pending["authorization_token"] = token
+                pending["requested_at_ros"] = (
+                    self.get_clock().now().nanoseconds / 1e9
+                )
+                pending["requested_at_monotonic"] = time.monotonic()
+
+                pending["future"] = self.preflight_client.call_async(
+                    Trigger.Request()
+                )
+                pending["stage"] = "PREFLIGHT"
+                pending["deadline"] = (
+                    time.monotonic() + self.command_timeout_s
+                )
+
+                self.get_logger().info(
+                    "Start authorized; preflight requested"
+                )
+
+            except Exception as error:
+                self.get_logger().error(
+                    f"Start authorization error: {error}"
+                )
+                self.finish_command(
+                    mavutil.mavlink.MAV_RESULT_FAILED
+                )
+
             return
 
         # Process preflight service response
@@ -515,6 +719,10 @@ class CommandBridge(Node):
                 # Handle failed Start preflight
                 if not response.success:
 
+                    self.send_statustext(
+                        f"LIDRON_START:{response.message}",
+                        mavutil.mavlink.MAV_SEVERITY_WARNING
+                    )
                     self.finish_command(mavutil.mavlink.MAV_RESULT_DENIED)
                     return
 
@@ -546,10 +754,10 @@ class CommandBridge(Node):
                 return
 
             self.get_logger().info("Preflight result successfully validated")
-            pending["stage"] = "READY_TO_ENABLE"
+            pending["stage"] = "READY_TO_START"
 
         # Final validation before enabling autonomy
-        elif pending["stage"] == "READY_TO_ENABLE":
+        elif pending["stage"] == "READY_TO_START":
 
             # Verify that mission state is current
             if not self.is_mission_state_fresh():
@@ -570,28 +778,40 @@ class CommandBridge(Node):
                 self.finish_command(mavutil.mavlink.MAV_RESULT_DENIED)
                 return
 
-            # Verify enable service availability
-            if not self.enable_client.service_is_ready():
-                self.get_logger().warning("Enable service unavailable")
+            # Verify Start service availability
+            if not self.start_client.service_is_ready():
+                self.get_logger().warning("Start service unavailable")
                 self.finish_command(mavutil.mavlink.MAV_RESULT_FAILED)
                 return
 
-            # Request autonomy activation
-            try:
-                request = SetBool.Request()
-                request.data = True
+            token = pending.get("authorization_token")
 
-                pending["future"] = self.enable_client.call_async(request)
-                pending["stage"] = "ENABLE"
-                pending["deadline"] = (time.monotonic() + self.command_timeout_s)
-                self.get_logger().info("Autonomy activation requested")
+            if not token:
+                self.send_statustext(
+                    "LIDRON_START:Missing Start authorization",
+                    mavutil.mavlink.MAV_SEVERITY_WARNING
+                )
+                self.finish_command(mavutil.mavlink.MAV_RESULT_DENIED)
+                return
+
+            # Request explicit mission activation
+            try:
+                request = StartMission.Request()
+                request.authorization_token = token
+
+                pending["future"] = self.start_client.call_async(request)
+                pending["stage"] = "START"
+                pending["deadline"] = (
+                    time.monotonic() + self.command_timeout_s
+                )
+                self.get_logger().info("Authorized Start requested")
 
             except Exception as error:
-                self.get_logger().error(f"Enable request error: {error}")
+                self.get_logger().error(f"Start request error: {error}")
                 self.finish_command(mavutil.mavlink.MAV_RESULT_FAILED)
 
         # Process autonomy service responses
-        elif pending["stage"] in ("ENABLE", "MISSION_ACTION"):
+        elif pending["stage"] in ("START", "MISSION_ACTION"):
             self.process_service_response(future)
 
     def send_statustext(self, text, severity):

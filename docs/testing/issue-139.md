@@ -134,3 +134,151 @@ and reported mission state transitions.
 Final interface review, QGroundControl integration,
 physical hardware validation, and repository
 publication remain pending.
+
+---
+
+## Post-Review Validation — November 25, 2026
+
+### Review Changes
+
+The following changes address the three review items:
+
+1. Abort priority over pending commands, including
+   interruption of a pending Start and invalidation
+   of its authorization.
+2. Separate Start and Resume services with
+   independent mission state validation.
+3. Failed Start preflight reasons forwarded to
+   QGroundControl through MAVLink STATUSTEXT.
+
+### Updated Automated Testing
+
+| Test Suite | Passed | Failed |
+| --- | --- | --- |
+| MAVLink Command Bridge | 109 | 0 |
+| Autonomous Systems Navigation | 187 | 0 |
+| Total | 296 | 0 |
+
+Command Bridge statement coverage: 83%.
+
+Regression tests cover pending Start interruption,
+authorization invalidation, delayed Start rejection,
+explicit Start and Resume state validation, failed
+preflight reporting, and command error handling.
+
+### QGroundControl SITL Validation
+
+Environment:
+
+- QGroundControl 5.1.5
+- PX4 SITL and Gazebo
+- ROS 2 Jazzy
+- Ubuntu 24.04 / WSL
+- Docker Compose
+- MAVLink component ID 192
+
+| Test | Result | Observed Evidence |
+| --- | --- | --- |
+| Component heartbeat | PASS | Component 192 at 1 Hz |
+| Mission status | PASS | STATUSTEXT at 1 Hz |
+| Check | PASS | Healthy preflight message received in QGC |
+| Start with passing preflight | PASS | ACK 0 and mission activation |
+| Start with failing preflight | PASS | ACK 2, failure reason displayed, mission not activated |
+| Pause | PASS | ACK 0 and transition to HOLD |
+| Resume | ACCEPTED | ACK 0; full state recovery not observed |
+| Abort | PASS | ACK 0 and transition to ABORT |
+| Resume after Abort | PASS | ACK 2; invalid state rejected |
+
+### Final QGroundControl Command Sequence
+
+Observed command acknowledgments:
+
+| Command | ID | ACK | Service Response |
+| --- | --- | --- | --- |
+| Start | 31011 | 0 | preflight started |
+| Pause | 31012 | 0 | mission holding |
+| Resume | 31013 | 0 | mission resume requested |
+| Abort | 31014 | 0 | controlled landing requested |
+| Resume after Abort | 31013 | 2 | Invalid mission state |
+
+Acknowledgments were sent to QGroundControl
+system 255, component 190.
+
+Observed mission state sequence:
+
+    IDLE -> PREFLIGHT -> HOLD -> ABORT
+
+Resume was accepted by the autonomy service.
+Abort was requested approximately 0.2 seconds
+after Resume, before a transition out of HOLD
+was observed.
+
+### Failed Start Reporting
+
+QGroundControl received the following warning
+from component 192:
+
+    LIDRON_START:PX4 preflight checks have not passed
+
+The bridge returned MAV_RESULT_DENIED (2).
+The mission remained in COMPLETE and was not
+reactivated.
+
+### Additional Negative Testing
+
+- Pause without an active mission was rejected.
+- Resume outside HOLD was rejected.
+- Abort without an active mission was rejected.
+- Pause during LANDING was rejected.
+- Resume after Abort was rejected.
+- A delayed Start using an invalidated authorization
+  was rejected in a direct ROS 2 service test.
+
+### SITL Limitations
+
+Repeated simulation runs encountered PX4 warnings:
+
+- GPS Horizontal Pos Drift too high
+- Yaw estimate error
+- Height estimate not stable
+- Time synchronization jumps
+
+Restarting the simulation restored healthy preflight
+conditions temporarily. The underlying cause was
+not established.
+
+No preflight or autonomy safety checks were disabled.
+
+Full Resume state recovery was not observed during
+the final QGroundControl sequence. Earlier pymavlink
+integration testing demonstrated recovery, but that
+test preceded the review changes.
+
+Positive ACK transmission was recorded in bridge logs.
+Independent QGroundControl receipt of every positive
+ACK was not separately captured.
+
+Local future cancellation does not guarantee that
+an already executing remote service is cancelled.
+Start authorization invalidation protects against
+delayed Start requests after Abort is processed.
+
+### Cross-Repository Dependency
+
+The updated command bridge requires the corresponding
+Start authorization, StartMission interface, and
+explicit Resume service in Autonomous-Systems.
+
+Compatible versions of both repositories are required.
+
+### Current Status
+
+The three review changes have been implemented locally.
+Updated automated tests and QGroundControl SITL
+command validation have been performed.
+
+Full Resume state recovery, cross-repository integration
+approval, and final reviewer approval remain outstanding.
+
+Integrated Widow hardware validation is tracked
+separately under LiDRON7/Autonomous-Systems#144.

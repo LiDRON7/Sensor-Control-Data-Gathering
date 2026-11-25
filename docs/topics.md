@@ -59,8 +59,10 @@ Autonomy reads the LiDAR on `/lidar/points`. When the LiDAR is mounted, point th
 Proposed interface contract for the Raspberry Pi bridge that translates QGroundControl MAVLink commands into existing ROS 2 autonomy services.
 
 The interface has been implemented and tested using PX4 SITL.
-Team review and QGroundControl end-to-end validation remain pending.
-Physical transport validation depends on Issue #138.
+QGroundControl SITL command validation has been performed.
+Full Resume state recovery remains unconfirmed.
+Team review remains pending.
+Integrated Widow hardware validation is tracked under Autonomous-Systems#144.
 
 ### Component identity
 | Parameter | Value |
@@ -89,9 +91,9 @@ Commands use `COMMAND_LONG` and explicitly target the bridge's system and compon
 | Action | MAVLink command | Command ID | ROS 2 interface |
 | --- | --- | --- | --- |
 | Check | `MAV_CMD_USER_1` | 31010 | `/autonomy/preflight_check` |
-| Start | `MAV_CMD_USER_2` | 31011 | Preflight check, then `/autonomy/enable` (`true`) |
+| Start | `MAV_CMD_USER_2` | 31011 | `/autonomy/prepare_start`, preflight check, then `/autonomy/start` |
 | Pause | `MAV_CMD_USER_3` | 31012 | `/autonomy/enable` (`false`) |
-| Resume | `MAV_CMD_USER_4` | 31013 | `/autonomy/enable` (`true`) |
+| Resume | `MAV_CMD_USER_4` | 31013 | `/autonomy/resume` |
 | Abort | `MAV_CMD_USER_5` | 31014 | `/autonomy/abort` |
 
 ### ROS 2 interfaces
@@ -100,7 +102,10 @@ Commands use `COMMAND_LONG` and explicitly target the bridge's system and compon
 | --- | --- | --- |
 | `/autonomy/preflight_check` | `std_srvs/Trigger` | Service client |
 | `/autonomy/preflight_result` | `std_msgs/String` (JSON) | Subscriber |
-| `/autonomy/enable` | `std_srvs/SetBool` | Service client |
+| `/autonomy/enable` | `std_srvs/SetBool` | Service client (Pause only) |
+| `/autonomy/prepare_start` | `std_srvs/Trigger` | Start authorization client |
+| `/autonomy/start` | `interfaces/StartMission` | Authorized Start client |
+| `/autonomy/resume` | `std_srvs/Trigger` | Explicit Resume client |
 | `/autonomy/abort` | `std_srvs/Trigger` | Service client |
 | `/autonomy/state` | `std_msgs/String` | Subscriber |
 
@@ -108,11 +113,14 @@ Commands use `COMMAND_LONG` and explicitly target the bridge's system and compon
 
 A single Start command performs the following sequence:
 
-1. Request `/autonomy/preflight_check`.
-2. Wait for the service response and its corresponding `/autonomy/preflight_result`.
-3. Verify that both indicate success and that `checked_at_s` is valid within the 30-second window using the ROS clock.
-4. Request `/autonomy/enable` with `data: true`.
-5. Return a final `COMMAND_ACK` based on the service response.
+1. Request a one-time Start authorization through `/autonomy/prepare_start`.
+2. Request `/autonomy/preflight_check`.
+3. Wait for the service response and corresponding `/autonomy/preflight_result`.
+4. Validate the passing result and its timestamp within the 30-second window.
+5. Request `/autonomy/start` using the authorization token.
+6. Return a final `COMMAND_ACK` based on the service response.
+
+Failed Start preflight responses are reported to QGroundControl through `STATUSTEXT` with the prefix `LIDRON_START:`.
 
 A failed, missing, stale, or uncorrelated preflight result must not enable the mission. A previously cached result must not be reused as the result of a new Start request.
 
@@ -186,12 +194,12 @@ The bridge forwards the state reported by autonomy without changing its meaning.
 The bridge uses a MAVLink connection to PX4.
 SITL integration testing uses a pymavlink test client over UDP.
 The development bridge listens on UDP port 14540.
-QGroundControl end-to-end validation remains pending.
+QGroundControl SITL command validation was performed. See the integration test results for observed outcomes and remaining limitations.
 
 See [Issue #139 integration test results](testing/issue-139.md)
 for test evidence, results, and known limitations.
 
-The physical Raspberry Pi to Pixhawk USB connection and MAVLink routing must be validated with hardware once the Issue #138 transport is available.
+Integrated Raspberry Pi, Pixhawk, and Widow hardware validation is tracked under Autonomous-Systems#144.
 
 ### Safety constraints
 
@@ -205,3 +213,20 @@ The physical Raspberry Pi to Pixhawk USB connection and MAVLink routing must be 
   or `ABORT`.
 - Start must not be treated as Resume.
 - Existing pilot override and autonomy safety checks must be preserved.
+
+
+### Abort priority and command isolation
+
+- Abort takes priority over other pending bridge commands.
+- Interrupted commands receive a failure acknowledgment.
+- The autonomy service invalidates pending Start authorization when processing Abort.
+- Start authorization is single-use and expires.
+- Explicit Start and Resume services validate their intended action independently.
+- Cancellation of a local service future does not guarantee cancellation of an already executing remote operation.
+- Abort failures and timeouts must not be interpreted as confirmed mission cancellation.
+
+### Cross-repository dependency
+
+The updated bridge requires the corresponding autonomy services and
+StartMission interface implemented in Autonomous-Systems.
+Both repositories must use compatible versions.

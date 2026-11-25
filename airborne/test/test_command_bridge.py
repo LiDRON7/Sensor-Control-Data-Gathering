@@ -14,6 +14,7 @@ from airborne_telemetry.command_bridge import (
 )
 from pymavlink import mavutil
 from std_srvs.srv import Trigger, SetBool
+from interfaces.srv import StartMission
 
 @pytest.fixture
 def bridge():
@@ -201,8 +202,20 @@ def action_bridge(bridge):
     bridge.pending_command = None
     bridge.command_timeout_s = 5.0
 
+    bridge.prepare_start_client = Mock()
+    bridge.prepare_start_client.service_is_ready.return_value = True
+
+    bridge.start_client = Mock()
+    bridge.start_client.service_is_ready.return_value = True
+
+    bridge.preflight_client = Mock()
+    bridge.preflight_client.service_is_ready.return_value = True
+
     bridge.enable_client = Mock()
     bridge.enable_client.service_is_ready.return_value = True
+
+    bridge.resume_client = Mock()
+    bridge.resume_client.service_is_ready.return_value = True
 
     bridge.abort_client = Mock()
     bridge.abort_client.service_is_ready.return_value = True
@@ -220,16 +233,16 @@ def test_pause_requests_enable_false(action_bridge):
     assert action_bridge.pending_command["stage"] == "MISSION_ACTION"
     action_bridge.send_ack.assert_not_called()
 
-def test_resume_requests_enable_true(action_bridge):
+def test_resume_requests_explicit_trigger(action_bridge):
     action_bridge.mission_state = "HOLD"
 
     CommandBridge.request_mission_action(action_bridge, CMD_RESUME, 254, 190)
-    action_bridge.enable_client.call_async.assert_called_once()
+    action_bridge.resume_client.call_async.assert_called_once()
+    action_bridge.enable_client.call_async.assert_not_called()
 
-    request = (action_bridge.enable_client.call_async.call_args.args[0])
+    request = (action_bridge.resume_client.call_async.call_args.args[0])
 
-    assert isinstance(request, SetBool.Request)
-    assert request.data is True
+    assert isinstance(request, Trigger.Request)
     assert action_bridge.pending_command["command_id"] == CMD_RESUME
     action_bridge.send_ack.assert_not_called()
 
@@ -238,6 +251,7 @@ def test_resume_rejected_outside_hold(action_bridge):
 
     CommandBridge.request_mission_action(action_bridge, CMD_RESUME, 254, 190)
     action_bridge.enable_client.call_async.assert_not_called()
+    action_bridge.resume_client.call_async.assert_not_called()
     action_bridge.send_ack.assert_called_once_with(
         CMD_RESUME,
         mavutil.mavlink.MAV_RESULT_DENIED,
@@ -252,6 +266,7 @@ def test_resume_rejected_with_stale_state(action_bridge):
 
     CommandBridge.request_mission_action(action_bridge, CMD_RESUME, 254, 190)
     action_bridge.enable_client.call_async.assert_not_called()
+    action_bridge.resume_client.call_async.assert_not_called()
     action_bridge.send_ack.assert_called_once_with(
         CMD_RESUME,
         mavutil.mavlink.MAV_RESULT_DENIED,
@@ -273,18 +288,25 @@ def test_abort_requests_trigger(action_bridge):
     action_bridge.send_ack.assert_not_called()
 
 def test_mission_action_rejected_when_busy(action_bridge):
-    pending = {"command_id": CMD_PAUSE}
+    pending = {"command_id": CMD_START}
     action_bridge.pending_command = pending
-    CommandBridge.request_mission_action(action_bridge, CMD_ABORT, 254, 190)
+
+    CommandBridge.request_mission_action(
+        action_bridge, CMD_PAUSE, 254, 190
+    )
+
+    action_bridge.enable_client.call_async.assert_not_called()
     action_bridge.abort_client.call_async.assert_not_called()
 
     action_bridge.send_ack.assert_called_once_with(
-        CMD_ABORT,
+        CMD_PAUSE,
         mavutil.mavlink.MAV_RESULT_TEMPORARILY_REJECTED,
         254,
         190
     )
+
     assert action_bridge.pending_command is pending
+
 
 def test_mission_action_service_unavailable(action_bridge):
     action_bridge.enable_client.service_is_ready.return_value = False
@@ -335,6 +357,8 @@ def test_service_response_denied(bridge):
 
     future.result.return_value = response
 
+    bridge.pending_command = {"command_id": CMD_ABORT}
+
     CommandBridge.process_service_response(bridge, future)
 
     bridge.finish_command.assert_called_once_with(mavutil.mavlink.MAV_RESULT_DENIED)
@@ -343,6 +367,8 @@ def test_service_response_exception(bridge):
     future = Mock()
     future.done.return_value = True
     future.result.side_effect = RuntimeError("Response failed")
+
+    bridge.pending_command = {"command_id": CMD_ABORT}
 
     CommandBridge.process_service_response(bridge, future)
 
@@ -551,6 +577,7 @@ def test_start_successful_lifecycle(action_bridge):
 
     action_bridge.pending_command = {
         "command_id": CMD_START,
+        "authorization_token": "a" * 32,
         "source_system": 254,
         "source_component": 190,
         "future": future,
@@ -565,31 +592,32 @@ def test_start_successful_lifecycle(action_bridge):
     CommandBridge.process_pending_command(action_bridge)
 
     assert action_bridge.pending_command["stage"] == ("WAIT_PREFLIGHT_RESULT")
-    action_bridge.enable_client.call_async.assert_not_called()
+    action_bridge.start_client.call_async.assert_not_called()
 
     # Stage 2: Published result validation
     CommandBridge.process_pending_command(action_bridge)
 
-    assert action_bridge.pending_command["stage"] == ("READY_TO_ENABLE")
-    action_bridge.enable_client.call_async.assert_not_called()
+    assert action_bridge.pending_command["stage"] == ("READY_TO_START")
+    action_bridge.start_client.call_async.assert_not_called()
 
-    # Stage 3: Enable autonomy
+    # Stage 3: Request explicit Start
     CommandBridge.process_pending_command(action_bridge)
 
-    assert action_bridge.pending_command["stage"] == "ENABLE"
+    assert action_bridge.pending_command["stage"] == "START"
 
-    action_bridge.enable_client.call_async.assert_called_once()
+    action_bridge.start_client.call_async.assert_called_once()
 
-    request = action_bridge.enable_client.call_async.call_args.args[0]
+    request = action_bridge.start_client.call_async.call_args.args[0]
 
-    assert isinstance(request, SetBool.Request)
-    assert request.data is True
+    assert isinstance(request, StartMission.Request)
+    assert request.authorization_token == "a" * 32
+    action_bridge.enable_client.call_async.assert_not_called()
 
-    # Stage 4: Enable service response
-    enable_future = action_bridge.pending_command["future"]
+    # Stage 4: Start service response
+    start_future = action_bridge.pending_command["future"]
 
-    enable_future.done.return_value = True
-    enable_future.result.return_value = Mock(
+    start_future.done.return_value = True
+    start_future.result.return_value = Mock(
         success=True,
         message="Autonomy enabled"
     )
@@ -624,6 +652,11 @@ def test_start_failed_preflight(action_bridge):
     action_bridge.finish_command.assert_called_once_with(mavutil.mavlink.MAV_RESULT_DENIED)
 
     action_bridge.enable_client.call_async.assert_not_called()
+
+    action_bridge.send_statustext.assert_called_once_with(
+        "LIDRON_START:Preflight failed",
+        mavutil.mavlink.MAV_SEVERITY_WARNING
+    )
 
 @pytest.mark.parametrize("count, valid", [
     (1, False),
@@ -664,10 +697,11 @@ def test_start_rejects_invalid_preflight(
 def test_start_final_validation(action_bridge, state, fresh, valid, ready, expected):
     action_bridge.pending_command = {
         "command_id": CMD_START,
+        "authorization_token": "a" * 32,
         "source_system": 254,
         "source_component": 190,
         "future": Mock(),
-        "stage": "READY_TO_ENABLE",
+        "stage": "READY_TO_START",
         "deadline": time.monotonic() + 5.0
     }
 
@@ -676,16 +710,17 @@ def test_start_final_validation(action_bridge, state, fresh, valid, ready, expec
     action_bridge.state_received_at = (time.monotonic() if fresh else time.monotonic() - 10.0)
 
     action_bridge.is_preflight_valid.return_value = valid
-    action_bridge.enable_client.service_is_ready.return_value = ready
+    action_bridge.start_client.service_is_ready.return_value = ready
 
     CommandBridge.process_pending_command(action_bridge)
 
     action_bridge.finish_command.assert_called_once_with(expected)
     action_bridge.enable_client.call_async.assert_not_called()
+    action_bridge.start_client.call_async.assert_not_called()
 
 @pytest.mark.parametrize("command_id, handler", [
     (CMD_CHECK, "request_preflight"),
-    (CMD_START, "request_preflight"),
+    (CMD_START, "request_start_authorization"),
     (CMD_PAUSE, "request_mission_action"),
     (CMD_RESUME, "request_mission_action"),
     (CMD_ABORT, "request_mission_action"),
@@ -819,3 +854,610 @@ def test_long_statustext_chunking(action_bridge, length):
         assert len(chunk) <= 50
         assert message_id == 1
         assert sequence == index
+
+@pytest.mark.parametrize("stage", [
+    "PREPARE_START",
+    "PREFLIGHT",
+    "WAIT_PREFLIGHT_RESULT",
+    "READY_TO_START",
+    "START",
+])
+def test_abort_interrupts_pending_start(action_bridge, stage):
+    old_future = Mock()
+    old_future.done.return_value = False
+
+    action_bridge.pending_command = {
+        "command_id": CMD_START,
+        "source_system": 254,
+        "source_component": 190,
+        "future": old_future,
+        "stage": stage,
+        "deadline": time.monotonic() + 5.0,
+    }
+
+    action_bridge.finish_command.side_effect = (
+        lambda result: CommandBridge.finish_command(
+            action_bridge, result
+        )
+    )
+
+    abort_future = Mock()
+    abort_future.done.return_value = False
+    action_bridge.abort_client.call_async.return_value = abort_future
+
+    CommandBridge.request_mission_action(
+        action_bridge, CMD_ABORT, 255, 190
+    )
+
+    old_future.cancel.assert_called_once()
+
+    action_bridge.send_ack.assert_called_once_with(
+        CMD_START,
+        mavutil.mavlink.MAV_RESULT_FAILED,
+        254,
+        190
+    )
+
+    action_bridge.abort_client.call_async.assert_called_once()
+
+    assert action_bridge.pending_command["command_id"] == CMD_ABORT
+    assert action_bridge.pending_command["future"] is abort_future
+    assert action_bridge.preflight_result is None
+    assert action_bridge.preflight_received_at is None
+    assert action_bridge.preflight_result_count == 0
+
+    # A late Start response must not restart the local sequence.
+    old_future.done.return_value = True
+    old_future.result.return_value = Mock(success=True)
+
+    CommandBridge.process_pending_command(action_bridge)
+
+    old_future.result.assert_not_called()
+    action_bridge.enable_client.call_async.assert_not_called()
+    action_bridge.start_client.call_async.assert_not_called()
+    action_bridge.preflight_client.call_async.assert_not_called()
+    action_bridge.prepare_start_client.call_async.assert_not_called()
+
+    assert action_bridge.pending_command["command_id"] == CMD_ABORT
+
+
+def test_duplicate_abort_rejected_when_pending(action_bridge):
+    pending = {"command_id": CMD_ABORT}
+    action_bridge.pending_command = pending
+
+    CommandBridge.request_mission_action(
+        action_bridge, CMD_ABORT, 254, 190
+    )
+
+    action_bridge.abort_client.call_async.assert_not_called()
+
+    action_bridge.send_ack.assert_called_once_with(
+        CMD_ABORT,
+        mavutil.mavlink.MAV_RESULT_TEMPORARILY_REJECTED,
+        254,
+        190
+    )
+
+    assert action_bridge.pending_command is pending
+
+
+def test_start_requests_authorization(action_bridge):
+    CommandBridge.request_start_authorization(
+        action_bridge, CMD_START, 254, 190
+    )
+
+    action_bridge.prepare_start_client.call_async.assert_called_once()
+
+    request = action_bridge.prepare_start_client.call_async.call_args.args[0]
+
+    assert isinstance(request, Trigger.Request)
+    assert action_bridge.pending_command["stage"] == "PREPARE_START"
+    assert action_bridge.pending_command["command_id"] == CMD_START
+    assert action_bridge.pending_command["source_system"] == 254
+    assert action_bridge.pending_command["source_component"] == 190
+
+    action_bridge.preflight_client.call_async.assert_not_called()
+    action_bridge.start_client.call_async.assert_not_called()
+    action_bridge.enable_client.call_async.assert_not_called()
+    action_bridge.send_ack.assert_not_called()
+
+
+def test_start_authorization_service_unavailable(action_bridge):
+    action_bridge.prepare_start_client.service_is_ready.return_value = False
+
+    CommandBridge.request_start_authorization(
+        action_bridge, CMD_START, 254, 190
+    )
+
+    action_bridge.prepare_start_client.call_async.assert_not_called()
+    action_bridge.preflight_client.call_async.assert_not_called()
+    action_bridge.start_client.call_async.assert_not_called()
+
+    action_bridge.send_ack.assert_called_once_with(
+        CMD_START,
+        mavutil.mavlink.MAV_RESULT_FAILED,
+        254,
+        190
+    )
+
+    assert action_bridge.pending_command is None
+
+
+def test_start_authorization_rejected_when_busy(action_bridge):
+    pending = {"command_id": CMD_CHECK}
+    action_bridge.pending_command = pending
+
+    CommandBridge.request_start_authorization(
+        action_bridge, CMD_START, 254, 190
+    )
+
+    action_bridge.prepare_start_client.call_async.assert_not_called()
+
+    action_bridge.send_ack.assert_called_once_with(
+        CMD_START,
+        mavutil.mavlink.MAV_RESULT_TEMPORARILY_REJECTED,
+        254,
+        190
+    )
+
+    assert action_bridge.pending_command is pending
+
+
+def test_start_authorization_request_exception(action_bridge):
+    action_bridge.prepare_start_client.call_async.side_effect = (
+        RuntimeError("Service request failed")
+    )
+
+    CommandBridge.request_start_authorization(
+        action_bridge, CMD_START, 254, 190
+    )
+
+    action_bridge.send_ack.assert_called_once_with(
+        CMD_START,
+        mavutil.mavlink.MAV_RESULT_FAILED,
+        254,
+        190
+    )
+
+    action_bridge.preflight_client.call_async.assert_not_called()
+    action_bridge.start_client.call_async.assert_not_called()
+
+    assert action_bridge.pending_command is None
+
+
+def test_prepare_start_success_continues_to_preflight(action_bridge):
+    CommandBridge.request_start_authorization(
+        action_bridge, CMD_START, 254, 190
+    )
+
+    future = action_bridge.pending_command["future"]
+    future.done.return_value = True
+    future.result.return_value = Mock(
+        success=True,
+        message="a" * 32
+    )
+
+    action_bridge.preflight_result = {"success": True}
+    action_bridge.preflight_received_at = time.monotonic()
+    action_bridge.preflight_result_count = 1
+
+    action_bridge.get_clock.return_value.now.return_value.nanoseconds = (
+        100_000_000_000
+    )
+
+    CommandBridge.process_pending_command(action_bridge)
+
+    pending = action_bridge.pending_command
+
+    assert pending["stage"] == "PREFLIGHT"
+    assert pending["authorization_token"] == "a" * 32
+    assert pending["requested_at_ros"] == 100.0
+    assert pending["command_id"] == CMD_START
+
+    assert action_bridge.preflight_result is None
+    assert action_bridge.preflight_received_at is None
+    assert action_bridge.preflight_result_count == 0
+
+    action_bridge.preflight_client.call_async.assert_called_once()
+    action_bridge.start_client.call_async.assert_not_called()
+    action_bridge.enable_client.call_async.assert_not_called()
+    action_bridge.finish_command.assert_not_called()
+
+
+def test_prepare_start_denied_reports_reason(action_bridge):
+    CommandBridge.request_start_authorization(
+        action_bridge, CMD_START, 254, 190
+    )
+
+    future = action_bridge.pending_command["future"]
+    future.done.return_value = True
+    future.result.return_value = Mock(
+        success=False,
+        message="mission state does not allow Start"
+    )
+
+    CommandBridge.process_pending_command(action_bridge)
+
+    action_bridge.send_statustext.assert_called_once_with(
+        "LIDRON_START:mission state does not allow Start",
+        mavutil.mavlink.MAV_SEVERITY_WARNING
+    )
+
+    action_bridge.finish_command.assert_called_once_with(
+        mavutil.mavlink.MAV_RESULT_DENIED
+    )
+
+    action_bridge.preflight_client.call_async.assert_not_called()
+    action_bridge.start_client.call_async.assert_not_called()
+    action_bridge.enable_client.call_async.assert_not_called()
+
+
+@pytest.mark.parametrize("token", [
+    "",
+    "invalid-token",
+    "g" * 32,
+    "a" * 31,
+    "a" * 33,
+])
+def test_prepare_start_rejects_invalid_token(action_bridge, token):
+    CommandBridge.request_start_authorization(
+        action_bridge, CMD_START, 254, 190
+    )
+
+    future = action_bridge.pending_command["future"]
+    future.done.return_value = True
+    future.result.return_value = Mock(
+        success=True,
+        message=token
+    )
+
+    CommandBridge.process_pending_command(action_bridge)
+
+    action_bridge.finish_command.assert_called_once_with(
+        mavutil.mavlink.MAV_RESULT_FAILED
+    )
+
+    action_bridge.preflight_client.call_async.assert_not_called()
+    action_bridge.start_client.call_async.assert_not_called()
+    action_bridge.enable_client.call_async.assert_not_called()
+
+
+def test_prepare_start_waits_for_response(action_bridge):
+    CommandBridge.request_start_authorization(
+        action_bridge, CMD_START, 254, 190
+    )
+
+    future = action_bridge.pending_command["future"]
+    future.done.return_value = False
+
+    CommandBridge.process_pending_command(action_bridge)
+
+    assert action_bridge.pending_command["stage"] == "PREPARE_START"
+
+    future.result.assert_not_called()
+    action_bridge.preflight_client.call_async.assert_not_called()
+    action_bridge.start_client.call_async.assert_not_called()
+    action_bridge.finish_command.assert_not_called()
+
+
+def test_prepare_start_preflight_unavailable(action_bridge):
+    CommandBridge.request_start_authorization(
+        action_bridge, CMD_START, 254, 190
+    )
+
+    future = action_bridge.pending_command["future"]
+    future.done.return_value = True
+    future.result.return_value = Mock(
+        success=True,
+        message="a" * 32
+    )
+
+    action_bridge.preflight_client.service_is_ready.return_value = False
+
+    CommandBridge.process_pending_command(action_bridge)
+
+    action_bridge.finish_command.assert_called_once_with(
+        mavutil.mavlink.MAV_RESULT_FAILED
+    )
+
+    action_bridge.preflight_client.call_async.assert_not_called()
+    action_bridge.start_client.call_async.assert_not_called()
+    action_bridge.enable_client.call_async.assert_not_called()
+
+
+def test_prepare_start_response_exception(action_bridge):
+    CommandBridge.request_start_authorization(
+        action_bridge, CMD_START, 254, 190
+    )
+
+    future = action_bridge.pending_command["future"]
+    future.done.return_value = True
+    future.result.side_effect = RuntimeError("Service response failed")
+
+    CommandBridge.process_pending_command(action_bridge)
+
+    action_bridge.finish_command.assert_called_once_with(
+        mavutil.mavlink.MAV_RESULT_FAILED
+    )
+
+    action_bridge.preflight_client.call_async.assert_not_called()
+    action_bridge.start_client.call_async.assert_not_called()
+    action_bridge.enable_client.call_async.assert_not_called()
+
+
+def test_complete_authorized_start_lifecycle(action_bridge):
+    token = "a" * 32
+
+    action_bridge.get_clock.return_value.now.return_value.nanoseconds = (
+        100_000_000_000
+    )
+
+    action_bridge.is_preflight_valid.side_effect = (
+        lambda pending: CommandBridge.is_preflight_valid(
+            action_bridge, pending
+        )
+    )
+
+    action_bridge.finish_command.side_effect = (
+        lambda result: CommandBridge.finish_command(
+            action_bridge, result
+        )
+    )
+
+    action_bridge.process_service_response.side_effect = (
+        lambda future: CommandBridge.process_service_response(
+            action_bridge, future
+        )
+    )
+
+    # Stage 1: Request Start authorization.
+    CommandBridge.request_start_authorization(
+        action_bridge, CMD_START, 254, 190
+    )
+
+    assert action_bridge.pending_command["stage"] == "PREPARE_START"
+
+    prepare_future = action_bridge.pending_command["future"]
+    prepare_future.done.return_value = True
+    prepare_future.result.return_value = Mock(
+        success=True,
+        message=token
+    )
+
+    # Stage 2: Authorization accepted; request preflight.
+    CommandBridge.process_pending_command(action_bridge)
+
+    assert action_bridge.pending_command["stage"] == "PREFLIGHT"
+    assert action_bridge.pending_command["authorization_token"] == token
+
+    preflight_future = action_bridge.pending_command["future"]
+    preflight_future.done.return_value = True
+    preflight_future.result.return_value = Mock(
+        success=True,
+        message="Preflight passed"
+    )
+
+    action_bridge.get_clock.return_value.now.return_value.nanoseconds = (
+        101_000_000_000
+    )
+
+    CommandBridge.on_preflight_result(
+        action_bridge,
+        Mock(data='{"success":true,"checked_at_s":101.0}')
+    )
+
+    # Stage 3: Process preflight service response.
+    CommandBridge.process_pending_command(action_bridge)
+
+    assert action_bridge.pending_command["stage"] == "WAIT_PREFLIGHT_RESULT"
+
+    action_bridge.start_client.call_async.assert_not_called()
+
+    # Stage 4: Validate published preflight result.
+    CommandBridge.process_pending_command(action_bridge)
+
+    assert action_bridge.pending_command["stage"] == "READY_TO_START"
+
+    action_bridge.start_client.call_async.assert_not_called()
+
+    # Stage 5: Request explicit Start.
+    CommandBridge.process_pending_command(action_bridge)
+
+    assert action_bridge.pending_command["stage"] == "START"
+
+    action_bridge.start_client.call_async.assert_called_once()
+
+    request = action_bridge.start_client.call_async.call_args.args[0]
+
+    assert isinstance(request, StartMission.Request)
+    assert request.authorization_token == token
+
+    action_bridge.enable_client.call_async.assert_not_called()
+    action_bridge.send_ack.assert_not_called()
+
+    # Stage 6: Process Start service response.
+    start_future = action_bridge.pending_command["future"]
+    start_future.done.return_value = True
+    start_future.result.return_value = Mock(
+        success=True,
+        message="preflight started"
+    )
+
+    CommandBridge.process_pending_command(action_bridge)
+
+    assert action_bridge.pending_command is None
+
+    action_bridge.send_ack.assert_called_once_with(
+        CMD_START,
+        mavutil.mavlink.MAV_RESULT_ACCEPTED,
+        254,
+        190
+    )
+
+    action_bridge.prepare_start_client.call_async.assert_called_once()
+    action_bridge.preflight_client.call_async.assert_called_once()
+    action_bridge.start_client.call_async.assert_called_once()
+    action_bridge.enable_client.call_async.assert_not_called()
+
+
+def test_start_without_authorization_is_denied(action_bridge):
+    action_bridge.pending_command = {
+        "command_id": CMD_START,
+        "source_system": 254,
+        "source_component": 190,
+        "future": Mock(),
+        "stage": "READY_TO_START",
+        "deadline": time.monotonic() + 5.0
+    }
+
+    action_bridge.is_preflight_valid.return_value = True
+    action_bridge.mission_state = "IDLE"
+    action_bridge.state_received_at = time.monotonic()
+
+    CommandBridge.process_pending_command(action_bridge)
+
+    action_bridge.finish_command.assert_called_once_with(
+        mavutil.mavlink.MAV_RESULT_DENIED
+    )
+
+    action_bridge.send_statustext.assert_called_once_with(
+        "LIDRON_START:Missing Start authorization",
+        mavutil.mavlink.MAV_SEVERITY_WARNING
+    )
+
+    action_bridge.start_client.call_async.assert_not_called()
+    action_bridge.enable_client.call_async.assert_not_called()
+
+
+def test_complete_start_failed_preflight(action_bridge):
+    action_bridge.get_clock.return_value.now.return_value.nanoseconds = (
+        100_000_000_000
+    )
+
+    action_bridge.finish_command.side_effect = (
+        lambda result: CommandBridge.finish_command(
+            action_bridge, result
+        )
+    )
+
+    CommandBridge.request_start_authorization(
+        action_bridge, CMD_START, 254, 190
+    )
+
+    prepare_future = action_bridge.pending_command["future"]
+    prepare_future.done.return_value = True
+    prepare_future.result.return_value = Mock(
+        success=True,
+        message="a" * 32
+    )
+
+    CommandBridge.process_pending_command(action_bridge)
+
+    assert action_bridge.pending_command["stage"] == "PREFLIGHT"
+
+    preflight_future = action_bridge.pending_command["future"]
+    preflight_future.done.return_value = True
+    preflight_future.result.return_value = Mock(
+        success=False,
+        message="PX4 preflight checks have not passed"
+    )
+
+    CommandBridge.process_pending_command(action_bridge)
+
+    assert action_bridge.pending_command is None
+
+    action_bridge.send_statustext.assert_called_once_with(
+        "LIDRON_START:PX4 preflight checks have not passed",
+        mavutil.mavlink.MAV_SEVERITY_WARNING
+    )
+
+    action_bridge.send_ack.assert_called_once_with(
+        CMD_START,
+        mavutil.mavlink.MAV_RESULT_DENIED,
+        254,
+        190
+    )
+
+    action_bridge.prepare_start_client.call_async.assert_called_once()
+    action_bridge.preflight_client.call_async.assert_called_once()
+
+    action_bridge.start_client.call_async.assert_not_called()
+    action_bridge.enable_client.call_async.assert_not_called()
+    action_bridge.resume_client.call_async.assert_not_called()
+
+    # A subsequent processing cycle must not restart Start.
+    CommandBridge.process_pending_command(action_bridge)
+
+    action_bridge.start_client.call_async.assert_not_called()
+    assert action_bridge.send_ack.call_count == 1
+
+
+def test_abort_unavailable_reports_unconfirmed(action_bridge):
+    action_bridge.abort_client.service_is_ready.return_value = False
+
+    CommandBridge.request_mission_action(
+        action_bridge, CMD_ABORT, 254, 190
+    )
+
+    action_bridge.send_statustext.assert_called_once_with(
+        "LIDRON_ABORT:Service unavailable; not confirmed",
+        mavutil.mavlink.MAV_SEVERITY_WARNING
+    )
+
+    action_bridge.send_ack.assert_called_once_with(
+        CMD_ABORT,
+        mavutil.mavlink.MAV_RESULT_FAILED,
+        254,
+        190
+    )
+
+    action_bridge.abort_client.call_async.assert_not_called()
+
+
+def test_abort_exception_reports_unconfirmed(action_bridge):
+    action_bridge.abort_client.call_async.side_effect = (
+        RuntimeError("Service request failed")
+    )
+
+    CommandBridge.request_mission_action(
+        action_bridge, CMD_ABORT, 254, 190
+    )
+
+    action_bridge.send_statustext.assert_called_once_with(
+        "LIDRON_ABORT:Request failed; not confirmed",
+        mavutil.mavlink.MAV_SEVERITY_WARNING
+    )
+
+    action_bridge.send_ack.assert_called_once_with(
+        CMD_ABORT,
+        mavutil.mavlink.MAV_RESULT_FAILED,
+        254,
+        190
+    )
+
+
+def test_abort_timeout_reports_unconfirmed(action_bridge):
+    future = Mock()
+    future.done.return_value = False
+
+    action_bridge.pending_command = {
+        "command_id": CMD_ABORT,
+        "source_system": 254,
+        "source_component": 190,
+        "future": future,
+        "stage": "MISSION_ACTION",
+        "deadline": time.monotonic() - 1.0
+    }
+
+    CommandBridge.process_pending_command(action_bridge)
+
+    future.cancel.assert_called_once()
+
+    action_bridge.send_statustext.assert_called_once_with(
+        "LIDRON_ABORT:Timeout; not confirmed",
+        mavutil.mavlink.MAV_SEVERITY_WARNING
+    )
+
+    action_bridge.finish_command.assert_called_once_with(
+        mavutil.mavlink.MAV_RESULT_FAILED
+    )
