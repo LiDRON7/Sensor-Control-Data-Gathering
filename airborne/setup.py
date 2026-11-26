@@ -18,5 +18,10 @@ setup(
     description="Pixhawk MAVLink radio bridge and ROS 2 GPS telemetry",
     license="TODO",
     tests_require=["pytest"],
-    entry_points={"console_scripts": ["airborne_bridge = airborne_telemetry.node:main"]},
+    entry_points={
+        "console_scripts": [
+        "airborne_bridge = airborne_telemetry.node:main",
+        "mavlink_command_bridge = airborne_telemetry.command_bridge:main",
+        ],
+    },
 )

@@ -1,2 +1,7 @@
 __pycache__/
 *.pyc
+
+# ROS 2 colcon build artifacts
+/airborne/build/
+/airborne/install/
+/airborne/log/
