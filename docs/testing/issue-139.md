@@ -371,3 +371,93 @@ to verify their content and severity.
 
 These are protocol-level tests, not end-to-end
 SITL or QGroundControl validation.
+
+## Final Second Review — Delayed Start SITL Validation
+
+Date: November 25, 2026
+
+### Test Environment
+
+- PX4 SITL and Gazebo in headless mode.
+- ROS 2 Jazzy with ROS_DOMAIN_ID=0.
+- QGroundControl with LiDRON custom MAVLink actions.
+- Command Bridge using simulation time.
+- Camera and LiDAR sensors remained enabled.
+- No PX4 safety checks were disabled.
+
+### Fault Injection
+
+A temporary copy of the Command Bridge was configured
+to delay processing the authorized Start service response
+by eight seconds, exceeding the five-second command timeout.
+
+The Start request was dispatched normally to Autonomy.
+The injection delayed response processing in the bridge,
+rather than ROS 2 service transport or server execution.
+
+The temporary modification was not committed.
+
+### Results
+
+| Validation | Result |
+|---|---|
+| Independent Check succeeds | PASS |
+| Start-specific authorization succeeds | PASS |
+| Start response processing exceeds timeout | PASS |
+| Start timeout detected | PASS |
+| Start failure ACK transmitted | PASS |
+| Outcome-not-confirmed warning displayed in QGC | PASS |
+| Mission state updates continue after timeout | PASS |
+| Abort accepted after Start timeout | PASS |
+| Controlled landing requested | PASS |
+| ABORT state displayed in QGC | PASS |
+
+### QGroundControl Evidence
+
+The following warning was displayed:
+
+LIDRON_START:Timeout; outcome not confirmed
+
+QGroundControl continued receiving mission state updates
+after the Start timeout.
+
+Observed mission state sequence:
+
+IDLE -> PREFLIGHT -> TAKEOFF -> PLANNING -> NAVIGATING
+-> APPROACH -> LANDING_CHECK -> LANDING -> ABORT
+
+The Start timeout occurred during TAKEOFF.
+
+### Abort After Timeout
+
+The operator issued LiDRON Abort after the Start timeout.
+
+Observed results:
+
+- Abort command received: MAV_CMD 31014.
+- Abort service response: success=True.
+- Response message: controlled landing requested.
+- COMMAND_ACK result=0 (accepted).
+- Mission state transitioned from LANDING to ABORT.
+- QGroundControl displayed the ABORT state.
+
+This validates acceptance of the Abort request.
+Physical landing completion and disarming were not
+established by the captured evidence.
+
+### Conclusion
+
+A Start reply timeout does not cancel a Start request
+that has already been dispatched to Autonomy.
+
+The Command Bridge reports the outcome as unconfirmed,
+continues reporting the actual mission state, and permits
+the operator to issue Abort after the timeout.
+
+The tested timeout-handling behavior passed integrated
+SITL and QGroundControl validation.
+
+The fault-injection scope was delayed response processing;
+an actual delayed ROS 2 service transport response was
+not independently tested.
+
